@@ -126,11 +126,11 @@ and test restoration regularly.
 1. Keep `data/telepons.db` as a backup.
 2. Install and start native PostgreSQL.
 3. Run `npm run db:migrate` to create the PostgreSQL schema.
-4. Run `npm run db:import:sqlite` once to copy existing rows. The importer uses
-   `ON CONFLICT DO NOTHING`, so rerunning it will not duplicate primary keys.
+4. If legacy SQLite data must be retained, export it before deployment and import
+   the resulting data into PostgreSQL with a dedicated one-time migration.
 5. Start the systemd services.
 
-Do not delete the SQLite database until the Supabase row counts and launch,
+Do not delete the SQLite database until the PostgreSQL row counts and launch,
 moderation, BuyBot, and verification flows have been checked.
 
 For an existing Supabase PostgreSQL database, use `pg_dump --format=custom`

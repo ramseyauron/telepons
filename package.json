@@ -21,8 +21,7 @@
     "lint": "eslint .",
     "check:production": "npm run typecheck && npm run lint && npm run build && npm audit --omit=dev",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --env-file-if-exists=.env.local --import tsx scripts/migrate.ts",
-    "db:import:sqlite": "node --env-file-if-exists=.env.local --import tsx scripts/import-sqlite.ts"
+    "db:migrate": "node --env-file-if-exists=.env.local --import tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@reown/appkit": "^1.8.23",
@@ -31,7 +30,6 @@
     "@x402/evm": "^2.20.0",
     "@x402/extensions": "^2.20.0",
     "@x402/svm": "^2.20.0",
-    "better-sqlite3": "^13.0.2",
     "drizzle-orm": "^0.45.2",
     "ethers": "^6.17.0",
     "grammy": "^1.45.1",
@@ -44,7 +42,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
