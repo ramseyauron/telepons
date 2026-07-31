@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { Buffer } from "node:buffer";
 import { eq } from "drizzle-orm";
 import { buildIpfsGatewayUrl, ipfsCidFromUrl } from "@/assets/ipfs-url";
 import { env } from "@/config/env";
@@ -9,6 +10,26 @@ import { launchDraftSchema } from "@/launch/schema";
 export const alt = "Telepons token launch";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+
+async function fetchLogoDataUrl(url?: string): Promise<string | undefined> {
+  if (!url) return undefined;
+
+  try {
+    const response = await fetch(url, {
+      cache: "force-cache",
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!response.ok) return undefined;
+
+    const mimeType = response.headers.get("content-type")?.split(";")[0];
+    if (!mimeType?.startsWith("image/")) return undefined;
+
+    const bytes = await response.arrayBuffer();
+    return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
 
 export default async function OpenGraphImage({
   params,
@@ -45,6 +66,7 @@ export default async function OpenGraphImage({
   const logoUrl = cid
     ? buildIpfsGatewayUrl(env.PINATA_FETCH_GATEWAY, cid)
     : draft.logoUrl;
+  const logoDataUrl = await fetchLogoDataUrl(logoUrl);
   const launched = session.status === "ACTIVE";
 
   return new ImageResponse(
@@ -61,11 +83,11 @@ export default async function OpenGraphImage({
       }}
     >
       <div style={{ alignItems: "center", display: "flex" }}>
-        {logoUrl ? (
+        {logoDataUrl ? (
           <img
             alt=""
             height="132"
-            src={logoUrl}
+            src={logoDataUrl}
             style={{ borderRadius: 30, objectFit: "cover" }}
             width="132"
           />
@@ -74,7 +96,7 @@ export default async function OpenGraphImage({
           style={{
             display: "flex",
             flexDirection: "column",
-            marginLeft: logoUrl ? 30 : 0,
+            marginLeft: logoDataUrl ? 30 : 0,
           }}
         >
           <div
