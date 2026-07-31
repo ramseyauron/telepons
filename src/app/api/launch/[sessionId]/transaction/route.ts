@@ -28,7 +28,6 @@ import {
   launchSessions,
   telegramGroups,
 } from "@/db/schema";
-import { runBuybotIndexer } from "@/indexer/buybot";
 import { launchDraftSchema } from "@/launch/schema";
 
 const requestSchema = z.object({
@@ -264,11 +263,6 @@ export async function POST(
         console.error("Could not announce successful launch to group", error);
       }
 
-      try {
-        await runBuybotIndexer(api);
-      } catch (error) {
-        console.error("Could not run immediate BuyBot activation cycle", error);
-      }
     }
 
     return Response.json({

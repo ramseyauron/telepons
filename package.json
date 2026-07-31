@@ -16,14 +16,13 @@
     "dev:bot": "node --env-file=.env.local --watch --import tsx src/bot/index.ts",
     "build": "next build",
     "start": "next start",
-    "prebot": "npm run db:migrate",
-    "bot": "node --env-file=.env.local --import tsx src/bot/index.ts",
+    "bot": "node --env-file-if-exists=.env.local --import tsx src/bot/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check:production": "npm run typecheck && npm run lint && npm run build && npm audit --omit=dev",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --env-file=.env.local --import tsx scripts/migrate.ts",
-    "db:import:sqlite": "node --env-file=.env.local --import tsx scripts/import-sqlite.ts"
+    "db:migrate": "node --env-file-if-exists=.env.local --import tsx scripts/migrate.ts",
+    "db:import:sqlite": "node --env-file-if-exists=.env.local --import tsx scripts/import-sqlite.ts"
   },
   "dependencies": {
     "@reown/appkit": "^1.8.23",

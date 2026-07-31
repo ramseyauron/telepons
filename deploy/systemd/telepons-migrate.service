@@ -1,0 +1,21 @@
+[Unit]
+Description=Telepons PostgreSQL migrations
+Requires=postgresql.service
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=telepons
+Group=telepons
+WorkingDirectory=/opt/telepons
+EnvironmentFile=/etc/telepons/telepons.env
+ExecStart=/usr/bin/npm run db:migrate
+RemainAfterExit=yes
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

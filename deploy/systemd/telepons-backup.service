@@ -1,0 +1,17 @@
+[Unit]
+Description=Telepons PostgreSQL backup
+Requires=postgresql.service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=telepons
+Group=telepons
+WorkingDirectory=/opt/telepons
+EnvironmentFile=/etc/telepons/telepons.env
+ExecStart=/opt/telepons/scripts/backup-postgres.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/backups/telepons

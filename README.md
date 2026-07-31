@@ -20,20 +20,18 @@ Required:
 
 - `TELEGRAM_BOT_TOKEN`: secret token from BotFather.
 - `APP_BASE_URL`: `http://localhost:3000` locally; the public HTTPS domain later.
-- `DATABASE_URL`: Supabase transaction-pooler URL (port `6543`) used by the
-  website and bot.
-- `DATABASE_MIGRATION_URL`: Supabase direct or session-pooler URL (port `5432`)
-  used only by Drizzle migrations.
-- `DATABASE_POOL_SIZE`: maximum connections per Telepons process. Use `2` for
-  Vercel serverless functions and configure the persistent bot worker
-  separately if it needs a larger pool.
+- `DATABASE_URL`: PostgreSQL URL. In Docker Compose it points to the private
+  `postgres` service and is never exposed publicly.
+- `DATABASE_MIGRATION_URL`: PostgreSQL URL used by the one-shot migration
+  container.
+- `DATABASE_POOL_SIZE`: maximum connections per Telepons process.
 
 Optional:
 
 - `ROBINHOOD_RPC_URL`: defaults to the documented public RPC. Override it with a
   dedicated provider in production.
-- `NEXT_PUBLIC_REOWN_PROJECT_ID`: only needed when WalletConnect/Reown is added.
-- `OPENAI_API_KEY`: only needed when structured LLM extraction is added.
+- `NEXT_PUBLIC_REOWN_PROJECT_ID`: Reown project ID for mobile wallets.
+- `OPENAI_API_KEY`: required for structured token-detail extraction.
 
 The active Pons v1 factory, start block, WETH, router, locker, and other public
 protocol addresses live in `src/config/pons.ts`. They are public constants, not
@@ -44,15 +42,60 @@ v2 launch factory and the rest of its launch stack have not been deployed yet.
 
 ## Production architecture
 
-- Deploy the Next.js website and API routes to Vercel.
-- Run `npm run bot` on a persistent worker such as Railway, Fly.io, Render, or
-  a VPS. Telegram long polling and BuyBot indexing must not run as a Vercel
-  serverless function.
-- Both deployments use the Supabase transaction-pooler connection string.
-- Run `npm run db:migrate` during a controlled release step, using the direct or
-  non-pooling connection string. Do not run concurrent migrations from every
-  application instance.
-- Use Node.js 22 LTS, as specified by `.nvmrc` and `package.json`.
+The complete production stack runs natively on one Ubuntu VPS:
+
+- Native Caddy terminates HTTPS and proxies to `127.0.0.1:3000`.
+- Next.js runs as `telepons-web.service`.
+- One grammY/BuyBot process runs as `telepons-bot.service`.
+- Native PostgreSQL listens only on `127.0.0.1:5432`.
+- `telepons-migrate.service` must succeed before web and bot start.
+- `telepons-backup.timer` creates a compressed backup every day.
+
+Only ports 80 and 443 are public. PostgreSQL and Next.js are accessible only
+through the loopback interface.
+
+### First VPS deployment
+
+1. Point the domain's `A`/`AAAA` record to the VPS.
+2. Copy the repository to `/opt/telepons`.
+3. Install PostgreSQL, Node.js 22, Caddy, the database role, and directories:
+
+```bash
+cd /opt/telepons
+export TELEPONS_DB_PASSWORD='a-long-random-database-password'
+sudo -E ./deploy/install-native-ubuntu.sh
+```
+
+4. Create the systemd environment file and replace every placeholder:
+
+```bash
+sudo mkdir -p /etc/telepons
+sudo cp .env.native.example /etc/telepons/telepons.env
+sudo chmod 600 /etc/telepons/telepons.env
+sudo editor /etc/telepons/telepons.env
+```
+
+The PostgreSQL password inside both database URLs must be URL encoded.
+
+5. Allowlist `https://telepons.family` in the Reown dashboard.
+6. Install and release the native services:
+
+```bash
+sudo ./deploy/install-services.sh
+sudo ./deploy/release-native.sh
+```
+
+7. Inspect startup and readiness:
+
+```bash
+systemctl status postgresql caddy telepons-migrate telepons-web telepons-bot
+journalctl -u telepons-web -u telepons-bot -f
+curl --fail https://telepons.family/api/health
+```
+
+Allow inbound SSH, TCP 80, TCP 443, and UDP 443. Do not allow public access to
+ports 3000 or 5432. Caddy obtains and renews TLS automatically. Run exactly one
+bot service; it is the sole BuyBot indexer.
 
 Before deploying, run the complete release gate:
 
@@ -64,15 +107,33 @@ npm run check:production
 The `/api/health` readiness endpoint returns HTTP `503` when PostgreSQL is not
 available.
 
-## Moving existing SQLite data to Supabase
+### Backups
+
+The daily timer runs automatically. A manual backup can be started with:
+
+```bash
+sudo systemctl start telepons-backup.service
+sudo journalctl -u telepons-backup.service --since today
+```
+
+Backups are written to `/var/backups/telepons`. Copy them to off-site storage
+and test restoration regularly.
+
+## Existing data
+
+### Moving SQLite data into the VPS database
 
 1. Keep `data/telepons.db` as a backup.
-2. Copy the Supabase connection strings into `.env.local`. URL-encode special
-   characters in the database password.
+2. Install and start native PostgreSQL.
 3. Run `npm run db:migrate` to create the PostgreSQL schema.
 4. Run `npm run db:import:sqlite` once to copy existing rows. The importer uses
    `ON CONFLICT DO NOTHING`, so rerunning it will not duplicate primary keys.
-5. Start the website and bot normally.
+5. Start the systemd services.
 
 Do not delete the SQLite database until the Supabase row counts and launch,
 moderation, BuyBot, and verification flows have been checked.
+
+For an existing Supabase PostgreSQL database, use `pg_dump --format=custom`
+against the Supabase non-pooling URL and restore it with `pg_restore` before
+starting the full stack. Restoring with `--clean` is destructive to the target
+database; take backups and verify the exact target before running it.

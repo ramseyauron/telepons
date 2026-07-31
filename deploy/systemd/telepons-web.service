@@ -1,0 +1,25 @@
+[Unit]
+Description=Telepons Next.js web and API
+Requires=telepons-migrate.service
+After=network-online.target telepons-migrate.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telepons
+Group=telepons
+WorkingDirectory=/opt/telepons
+EnvironmentFile=/etc/telepons/telepons.env
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/telepons/.next/cache
+
+[Install]
+WantedBy=multi-user.target

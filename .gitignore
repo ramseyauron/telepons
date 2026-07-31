@@ -6,6 +6,8 @@ outputs/
 .env
 .env.local
 .env.local.bak
+.env.native
+backups/
 data/
 public/uploads/
 *.log
