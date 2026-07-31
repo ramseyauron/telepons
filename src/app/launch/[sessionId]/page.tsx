@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { isAddress } from "viem";
+import { getAddress, isAddress } from "viem";
 import { buildIpfsGatewayUrl, ipfsCidFromUrl } from "@/assets/ipfs-url";
 import { env } from "@/config/env";
 import { db } from "@/db/client";
@@ -35,19 +35,24 @@ export default async function LaunchSessionPage({
       ? buildIpfsGatewayUrl(env.PINATA_FALLBACK_FETCH_GATEWAY, logoCid)
       : undefined;
   const usable = session.status === "READY";
-  const tradingUrl =
+  const storedTokenAddress = session.tokenAddress?.trim();
+  const launchedTokenAddress =
     session.status === "ACTIVE" &&
-    session.tokenAddress &&
-    isAddress(session.tokenAddress)
-      ? `https://axiom.trade/t/${session.tokenAddress}/@badday?chain=robinhood`
+    storedTokenAddress &&
+    isAddress(storedTokenAddress, { strict: false })
+      ? getAddress(storedTokenAddress.toLowerCase())
+      : undefined;
+  const tradingUrl =
+    launchedTokenAddress
+      ? `https://axiom.trade/t/${launchedTokenAddress}/@badday?chain=robinhood`
       : undefined;
   const maestroUrl =
-    tradingUrl && session.tokenAddress
-      ? `https://t.me/maestro?start=${session.tokenAddress}-addictaddict`
+    tradingUrl && launchedTokenAddress
+      ? `https://t.me/maestro?start=${launchedTokenAddress}-addictaddict`
       : undefined;
   const sigmaUrl =
-    tradingUrl && session.tokenAddress
-      ? `https://t.me/Sigma_buyBot?start=xbadday-${session.tokenAddress}`
+    tradingUrl && launchedTokenAddress
+      ? `https://t.me/Sigma_buyBot?start=xbadday-${launchedTokenAddress}`
       : undefined;
 
   return (

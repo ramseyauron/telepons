@@ -91,11 +91,12 @@ export function launchAnnouncementKeyboard(input: {
 }
 
 export function launchTradingKeyboard(tokenAddress: string): InlineKeyboard {
-  if (!isAddress(tokenAddress)) {
+  const storedTokenAddress = tokenAddress.trim();
+  if (!isAddress(storedTokenAddress, { strict: false })) {
     throw new Error("INVALID_TRADING_TOKEN_ADDRESS");
   }
 
-  const token = getAddress(tokenAddress);
+  const token = getAddress(storedTokenAddress.toLowerCase());
   return new InlineKeyboard()
     .url(
       "Trade on Axiom",
