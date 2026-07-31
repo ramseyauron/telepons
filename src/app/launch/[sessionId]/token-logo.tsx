@@ -2,10 +2,32 @@
 
 import { useState } from "react";
 
-export function TokenLogo({ name, url }: { name: string; url?: string }) {
-  const [failed, setFailed] = useState(false);
+function imageSources(url?: string): string[] {
+  if (!url) return [];
 
-  if (!url || failed) {
+  const sources = [url];
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/\/ipfs\/([^/]+)/i);
+    const cid = match?.[1];
+    if (cid) {
+      sources.push(
+        `https://blue-raw-808.mypinata.cloud/ipfs/${encodeURIComponent(cid)}`,
+      );
+    }
+  } catch {
+    return [];
+  }
+
+  return [...new Set(sources)];
+}
+
+export function TokenLogo({ name, url }: { name: string; url?: string }) {
+  const sources = imageSources(url);
+  const [sourceIndex, setSourceIndex] = useState(0);
+
+  const activeSource = sources[sourceIndex];
+  if (!activeSource) {
     return (
       <div
         aria-label={`${name} logo unavailable`}
@@ -26,8 +48,9 @@ export function TokenLogo({ name, url }: { name: string; url?: string }) {
       alt={`${name} logo`}
       className="token-logo"
       height={112}
-      onError={() => setFailed(true)}
-      src={url}
+      onError={() => setSourceIndex((index) => index + 1)}
+      referrerPolicy="no-referrer"
+      src={activeSource}
       width={112}
     />
   );
