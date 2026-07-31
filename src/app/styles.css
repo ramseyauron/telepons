@@ -252,6 +252,45 @@ h1 {
   opacity: 0.65;
 }
 
+.launch-complete-actions {
+  display: grid;
+  gap: 14px;
+}
+
+.trading-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trading-button {
+  display: grid;
+  place-items: center;
+  padding: 0 22px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.trading-button:hover {
+  filter: brightness(1.08);
+}
+
+.maestro-button {
+  background: #54a7ff;
+  color: #061c35;
+}
+
+.sigma-button {
+  background: #a987ff;
+  color: #180b35;
+}
+
+@media (max-width: 600px) {
+  .trading-buttons {
+    grid-template-columns: 1fr;
+  }
+}
+
 .danger-button {
   background: #ff695f;
   color: #2b0806;

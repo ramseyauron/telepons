@@ -233,6 +233,7 @@ export async function POST(
                 `/launch/${session.id}`,
                 env.APP_BASE_URL,
               ).toString(),
+              tokenAddress: launchEvent.args.token,
               transactionUrl: `${ponsV1.explorerUrl}/tx/${transactionHash}`,
             }),
           },

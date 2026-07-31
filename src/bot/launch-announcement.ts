@@ -1,4 +1,5 @@
 import { InlineKeyboard, type Api } from "grammy";
+import { getAddress, isAddress } from "viem";
 import { ponsV1 } from "@/config/pons";
 import type { LaunchDraft } from "@/launch/schema";
 
@@ -70,8 +71,13 @@ export function launchAnnouncementCaption(input: {
 export function launchAnnouncementKeyboard(input: {
   draft: LaunchDraft;
   launchUrl: string;
+  tokenAddress?: string;
   transactionUrl?: string;
 }): InlineKeyboard {
+  if (input.tokenAddress) {
+    return launchTradingKeyboard(input.tokenAddress);
+  }
+
   const keyboard = new InlineKeyboard();
   if (input.draft.telegram) {
     keyboard.url("Join community", input.draft.telegram);
@@ -82,6 +88,28 @@ export function launchAnnouncementKeyboard(input: {
     keyboard.row().url("Open launch terminal", input.launchUrl);
   }
   return keyboard;
+}
+
+export function launchTradingKeyboard(tokenAddress: string): InlineKeyboard {
+  if (!isAddress(tokenAddress)) {
+    throw new Error("INVALID_TRADING_TOKEN_ADDRESS");
+  }
+
+  const token = getAddress(tokenAddress);
+  return new InlineKeyboard()
+    .url(
+      "Trade on Axiom",
+      `https://axiom.trade/t/${token}/@badday?chain=robinhood`,
+    )
+    .row()
+    .url(
+      "Trade Maestro",
+      `https://t.me/maestro?start=${token}-addictaddict`,
+    )
+    .url(
+      "Trade Sigma",
+      `https://t.me/Sigma_buyBot?start=xbadday-${token}`,
+    );
 }
 
 export async function announceLaunchSession(input: {
@@ -130,14 +158,13 @@ export async function announceSuccessfulLaunch(input: {
     `Token: <a href="${tokenUrl}">${escapeTelegramHtml(input.tokenAddress)}</a>`,
     `Pool: <a href="${poolUrl}">${escapeTelegramHtml(input.poolAddress)}</a>`,
     `Deployer: <a href="${deployerUrl}">${escapeTelegramHtml(input.draft.deployerAddress)}</a>`,
+    `Transaction: <a href="${transactionUrl}">${escapeTelegramHtml(input.transactionHash)}</a>`,
     `Developer buy: ${escapeTelegramHtml(input.draft.developerBuyEth)} ETH`,
     "",
     "BuyBot: 🟢 ACTIVE",
     "Volume tracking: 🟢 ACTIVE",
   ].join("\n");
-  const replyMarkup = new InlineKeyboard()
-    .url("View token", tokenUrl)
-    .url("Transaction", transactionUrl);
+  const replyMarkup = launchTradingKeyboard(input.tokenAddress);
   const options = {
     caption,
     parse_mode: "HTML",

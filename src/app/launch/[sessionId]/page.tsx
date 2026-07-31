@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
+import { isAddress } from "viem";
 import { buildIpfsGatewayUrl, ipfsCidFromUrl } from "@/assets/ipfs-url";
 import { env } from "@/config/env";
 import { db } from "@/db/client";
@@ -34,6 +35,20 @@ export default async function LaunchSessionPage({
       ? buildIpfsGatewayUrl(env.PINATA_FALLBACK_FETCH_GATEWAY, logoCid)
       : undefined;
   const usable = session.status === "READY";
+  const tradingUrl =
+    session.status === "ACTIVE" &&
+    session.tokenAddress &&
+    isAddress(session.tokenAddress)
+      ? `https://axiom.trade/t/${session.tokenAddress}/@badday?chain=robinhood`
+      : undefined;
+  const maestroUrl =
+    tradingUrl && session.tokenAddress
+      ? `https://t.me/maestro?start=${session.tokenAddress}-addictaddict`
+      : undefined;
+  const sigmaUrl =
+    tradingUrl && session.tokenAddress
+      ? `https://t.me/Sigma_buyBot?start=xbadday-${session.tokenAddress}`
+      : undefined;
 
   return (
     <main className="launch-shell">
@@ -77,6 +92,38 @@ export default async function LaunchSessionPage({
             expiresAt={session.expiresAt.toISOString()}
             sessionId={session.id}
           />
+        ) : tradingUrl ? (
+          <div className="launch-complete-actions">
+            <div className="notice success">
+              This token has launched and is available for trading.
+            </div>
+            <div className="trading-buttons">
+              <a
+                className="primary-button trading-button"
+                href={tradingUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Trade on Axiom
+              </a>
+              <a
+                className="primary-button trading-button maestro-button"
+                href={maestroUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Trade with Maestro
+              </a>
+              <a
+                className="primary-button trading-button sigma-button"
+                href={sigmaUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Trade with Sigma
+              </a>
+            </div>
+          </div>
         ) : (
           <div className="notice error">
             This launch session is no longer available for execution.
