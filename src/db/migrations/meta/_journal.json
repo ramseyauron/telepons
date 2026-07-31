@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785438280159,
+      "tag": "0000_high_the_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785439513826,
+      "tag": "0001_optimal_power_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785441242344,
+      "tag": "0002_daily_triathlon",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785442984683,
+      "tag": "0003_pretty_bastion",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785443219021,
+      "tag": "0004_overconfident_black_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785447975402,
+      "tag": "0005_funny_james_howlett",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785448675074,
+      "tag": "0006_flowery_zarek",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785449898075,
+      "tag": "0007_free_miracleman",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785475784542,
+      "tag": "0008_foamy_maelstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785478546743,
+      "tag": "0009_lying_sister_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785481328878,
+      "tag": "0010_famous_micromax",
+      "breakpoints": true
+    }
+  ]
+}

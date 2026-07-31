@@ -1,0 +1,1 @@
+ALTER TABLE `launch_orders` ADD `launch_session_id` text;

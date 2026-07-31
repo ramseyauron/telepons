@@ -1,0 +1,12 @@
+node_modules/
+.next/
+dist/
+work/
+outputs/
+.env
+.env.local
+.env.local.bak
+data/
+public/uploads/
+*.log
+.DS_Store

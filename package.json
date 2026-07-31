@@ -1,0 +1,40 @@
+{
+  "name": "telepons",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:bot": "node --env-file=.env.local --watch --import tsx src/bot/index.ts",
+    "build": "next build",
+    "start": "next start",
+    "bot": "node --env-file=.env.local --import tsx src/bot/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --import tsx scripts/migrate.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.5",
+    "better-sqlite3": "^13.0.2",
+    "drizzle-orm": "^0.45.2",
+    "grammy": "^1.45.1",
+    "next": "^16.2.12",
+    "openai": "^7.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "viem": "^2.55.10",
+    "wagmi": "^3.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "drizzle-kit": "^0.31.8",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "^16.2.12",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
