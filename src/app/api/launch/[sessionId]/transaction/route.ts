@@ -10,6 +10,7 @@ import {
 } from "viem";
 import { z } from "zod";
 import {
+  announceSuccessfulLaunch,
   launchAnnouncementCaption,
   launchAnnouncementKeyboard,
 } from "@/bot/launch-announcement";
@@ -17,14 +18,17 @@ import { expireLaunchSessions } from "@/bot/session-expiration";
 import { robinhoodChain } from "@/blockchain/chain";
 import { ponsV1FactoryAbi } from "@/blockchain/pons-v1-abi";
 import { rateLimitedHttp } from "@/blockchain/rate-limited-transport";
+import { loggedRpcCall } from "@/blockchain/rpc-logging";
 import { env } from "@/config/env";
 import { ponsV1 } from "@/config/pons";
 import { db } from "@/db/client";
 import {
+  buybotSettings,
   launchOrders,
   launchSessions,
   telegramGroups,
 } from "@/db/schema";
+import { runBuybotIndexer } from "@/indexer/buybot";
 import { launchDraftSchema } from "@/launch/schema";
 
 const requestSchema = z.object({
@@ -35,7 +39,7 @@ const publicClient = createPublicClient({
   chain: robinhoodChain,
   transport: rateLimitedHttp(
     env.ROBINHOOD_RPC_URL ?? ponsV1.publicRpcUrl,
-    20,
+    5,
   ),
 });
 
@@ -69,14 +73,21 @@ export async function POST(
   const transactionHash = body.data.transactionHash as `0x${string}`;
 
   try {
-    const [transaction, receipt] = await Promise.all([
-      publicClient.getTransaction({ hash: transactionHash }),
-      publicClient.waitForTransactionReceipt({
-        hash: transactionHash,
-        confirmations: 1,
-        timeout: 120_000,
-      }),
-    ]);
+    const [transaction, receipt] = await loggedRpcCall({
+      operation: "launchTransactionConfirmation",
+      context: { sessionId, transactionHash },
+      call: () =>
+        Promise.all([
+          publicClient.getTransaction({ hash: transactionHash }),
+          publicClient.waitForTransactionReceipt({
+            hash: transactionHash,
+            confirmations: 1,
+            timeout: 120_000,
+          }),
+        ]),
+      isExpected: ([tx, txReceipt]) =>
+        Boolean(tx.from && txReceipt.blockNumber >= 0n),
+    });
 
     if (
       receipt.status !== "success" ||
@@ -103,11 +114,20 @@ export async function POST(
     }
 
     const [tokenParams] = decodedCall.args;
-    const launchFeeAtBlock = await publicClient.readContract({
-      address: ponsV1.factory,
-      abi: ponsV1FactoryAbi,
-      functionName: "launchFee",
-      blockNumber: receipt.blockNumber,
+    const launchFeeAtBlock = await loggedRpcCall({
+      operation: "eth_call:launchFee",
+      context: {
+        sessionId,
+        blockNumber: receipt.blockNumber.toString(),
+      },
+      call: () =>
+        publicClient.readContract({
+          address: ponsV1.factory,
+          abi: ponsV1FactoryAbi,
+          functionName: "launchFee",
+          blockNumber: receipt.blockNumber,
+        }),
+      isExpected: (value) => value >= 0n,
     });
     const expectedValue =
       launchFeeAtBlock + parseEther(draft.developerBuyEth);
@@ -152,21 +172,30 @@ export async function POST(
       );
     }
 
-    await db
-      .update(launchSessions)
-      .set({
-        status: "ACTIVE",
-        transactionHash,
-        tokenAddress: launchEvent.args.token,
-        poolAddress: launchEvent.args.pool,
-        launchBlock: Number(receipt.blockNumber),
-        consumedAt: new Date(),
-      })
-      .where(eq(launchSessions.id, session.id));
-    await db
-      .update(telegramGroups)
-      .set({ lifecycle: "ACTIVE" })
-      .where(eq(telegramGroups.id, session.groupId));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(launchSessions)
+        .set({
+          status: "ACTIVE",
+          transactionHash,
+          tokenAddress: launchEvent.args.token,
+          poolAddress: launchEvent.args.pool,
+          launchBlock: Number(receipt.blockNumber),
+          consumedAt: new Date(),
+        })
+        .where(eq(launchSessions.id, session.id));
+      await tx
+        .update(telegramGroups)
+        .set({ lifecycle: "ACTIVE" })
+        .where(eq(telegramGroups.id, session.groupId));
+      await tx
+        .insert(buybotSettings)
+        .values({ groupId: session.groupId, enabled: true })
+        .onConflictDoUpdate({
+          target: buybotSettings.groupId,
+          set: { enabled: true },
+        });
+    });
 
     const order = await db.query.launchOrders.findFirst({
       where: and(
@@ -174,13 +203,19 @@ export async function POST(
         eq(launchOrders.status, "CONFIRMED"),
       ),
     });
+    const group = await db.query.telegramGroups.findFirst({
+      where: eq(telegramGroups.id, session.groupId),
+    });
+
+    const api = env.TELEGRAM_BOT_TOKEN
+      ? new Api(env.TELEGRAM_BOT_TOKEN)
+      : null;
 
     if (
       order?.announcementMessageId &&
-      env.TELEGRAM_BOT_TOKEN &&
+      api &&
       env.TELEGRAM_LAUNCH_CHANNEL
     ) {
-      const api = new Api(env.TELEGRAM_BOT_TOKEN);
       try {
         await api.editMessageCaption(
           env.TELEGRAM_LAUNCH_CHANNEL,
@@ -189,8 +224,10 @@ export async function POST(
             caption: launchAnnouncementCaption({
               draft,
               status: "LAUNCHED",
+              groupTitle: group?.title ?? "Community",
               tokenAddress: launchEvent.args.token,
             }),
+            parse_mode: "HTML",
             reply_markup: launchAnnouncementKeyboard({
               draft,
               launchUrl: new URL(
@@ -209,6 +246,28 @@ export async function POST(
           .update(launchOrders)
           .set({ announcementError })
           .where(eq(launchOrders.id, order.id));
+      }
+    }
+
+    if (api) {
+      try {
+        await announceSuccessfulLaunch({
+          api,
+          groupId: session.groupId,
+          draft,
+          telegramFileId: order?.telegramFileId,
+          tokenAddress: launchEvent.args.token,
+          poolAddress: launchEvent.args.pool,
+          transactionHash,
+        });
+      } catch (error) {
+        console.error("Could not announce successful launch to group", error);
+      }
+
+      try {
+        await runBuybotIndexer(api);
+      } catch (error) {
+        console.error("Could not run immediate BuyBot activation cycle", error);
       }
     }
 

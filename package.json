@@ -2,28 +2,46 @@
   "name": "telepons",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "overrides": {
+    "axios": "1.19.0",
+    "postcss": "8.5.25",
+    "sharp": "0.35.3"
+  },
   "scripts": {
     "dev": "next dev",
+    "predev:bot": "npm run db:migrate",
     "dev:bot": "node --env-file=.env.local --watch --import tsx src/bot/index.ts",
     "build": "next build",
     "start": "next start",
+    "prebot": "npm run db:migrate",
     "bot": "node --env-file=.env.local --import tsx src/bot/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "check:production": "npm run typecheck && npm run lint && npm run build && npm audit --omit=dev",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --import tsx scripts/migrate.ts"
+    "db:migrate": "node --env-file=.env.local --import tsx scripts/migrate.ts",
+    "db:import:sqlite": "node --env-file=.env.local --import tsx scripts/import-sqlite.ts"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.90.5",
+    "@reown/appkit": "^1.8.23",
+    "@reown/appkit-adapter-ethers": "^1.8.23",
+    "@x402/core": "^2.20.0",
+    "@x402/evm": "^2.20.0",
+    "@x402/extensions": "^2.20.0",
+    "@x402/svm": "^2.20.0",
     "better-sqlite3": "^13.0.2",
     "drizzle-orm": "^0.45.2",
+    "ethers": "^6.17.0",
     "grammy": "^1.45.1",
     "next": "^16.2.12",
     "openai": "^7.2.0",
+    "postgres": "^3.4.9",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "viem": "^2.55.10",
-    "wagmi": "^3.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -32,7 +50,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "drizzle-kit": "^0.31.8",
-    "eslint": "^9.39.0",
+    "eslint": "9.39.0",
     "eslint-config-next": "^16.2.12",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

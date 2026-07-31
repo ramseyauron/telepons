@@ -1,13 +1,14 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { env } from "@/config/env";
 import * as schema from "./schema";
 
-mkdirSync(dirname(env.DATABASE_URL), { recursive: true });
+// Supabase's transaction pooler does not support prepared statements.
+export const postgresClient = postgres(env.DATABASE_URL, {
+  prepare: false,
+  max: env.DATABASE_POOL_SIZE,
+  idle_timeout: 20,
+  connect_timeout: 10,
+});
 
-const sqlite = new Database(env.DATABASE_URL);
-sqlite.pragma("journal_mode = WAL");
-
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(postgresClient, { schema });

@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { formatEther, parseEther } from "viem";
 import { ZodError } from "zod";
@@ -14,8 +14,14 @@ import {
   backfillConfiguredGroupInstallations,
   getBotGroupCounts,
   recordBotMembershipChange,
+  recordGroupChatMigration,
 } from "@/bot/group-installations";
 import { expireLaunchSessions } from "@/bot/session-expiration";
+import {
+  expirePendingVerifications,
+  moderationMiddleware,
+} from "@/bot/moderation";
+import { requireChannelSubscriptions } from "@/bot/subscription";
 import {
   disableBuybotTestTargets,
   rebuildVolumeTotalsFromSwaps,
@@ -31,6 +37,8 @@ import {
   telegramGroups,
   tokenAssets,
   buybotSettings,
+  buybotTestTargets,
+  groupModerationSettings,
 } from "@/db/schema";
 import {
   getGroupTelegramUrl,
@@ -61,6 +69,7 @@ if (!env.TELEGRAM_BOT_TOKEN) {
 }
 
 const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+bot.use(moderationMiddleware);
 
 function launchSessionKeyboard(launchUrl: string): InlineKeyboard {
   const keyboard = new InlineKeyboard();
@@ -71,8 +80,17 @@ function launchSessionKeyboard(launchUrl: string): InlineKeyboard {
 }
 
 bot.command("start", async (ctx) => {
+  if (!(await requireChannelSubscriptions(ctx))) return;
   await ctx.reply(
     "Telepons is active. Add the bot as a group administrator, then run /setup.",
+  );
+});
+
+bot.on("message:migrate_to_chat_id", async (ctx) => {
+  await recordGroupChatMigration(ctx);
+  const counts = await getBotGroupCounts();
+  console.log(
+    `Telepons group installations: ${counts.active} active, ${counts.total} total`,
   );
 });
 
@@ -84,11 +102,17 @@ bot.on("my_chat_member", async (ctx) => {
   );
 });
 
+// Explicit registration makes grammY request chat_member updates from
+// Telegram. The moderation middleware processes the update before this
+// terminal handler is reached.
+bot.on("chat_member", async () => undefined);
+
 bot.command("setup", async (ctx) => {
   if (!isGroupContext(ctx)) {
     await ctx.reply("Run /setup inside your token community group.");
     return;
   }
+  if (!(await requireChannelSubscriptions(ctx))) return;
 
   const ownerUserId = await getGroupOwnerUserId(ctx);
   if (!ownerUserId || !ctx.from || ownerUserId !== String(ctx.from.id)) {
@@ -128,9 +152,23 @@ bot.command("launch", async (ctx) => {
     await ctx.reply("Run /launch inside the configured community group.");
     return;
   }
+  if (!(await requireChannelSubscriptions(ctx))) return;
 
   if (!(await isCurrentGroupOwner(ctx))) {
     await ctx.reply("Only the group owner can start a token launch.");
+    return;
+  }
+
+  const publicGroupTelegramUrl = await getGroupTelegramUrl(ctx);
+  if (!publicGroupTelegramUrl) {
+    await ctx.reply(
+      [
+        "The community group must be public before launching a token.",
+        "",
+        "Set a public username for this group in Telegram settings, then run /launch again.",
+        "Private invite links are not accepted.",
+      ].join("\n"),
+    );
     return;
   }
 
@@ -229,13 +267,7 @@ bot.command("launch", async (ctx) => {
 
   if (suppliedDetails) {
     try {
-      const groupTelegramUrl = await getGroupTelegramUrl(ctx);
-      if (!groupTelegramUrl) {
-        await ctx.reply(
-          "I could not resolve this group's Telegram link. Configure a public username or invite link and try again.",
-        );
-        return;
-      }
+      const groupTelegramUrl = publicGroupTelegramUrl;
 
       const extractedDraft = env.OPENAI_API_KEY
         ? await extractLaunchDraftWithLlm({
@@ -323,6 +355,7 @@ bot.command("buybot", async (ctx) => {
   if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) {
     return;
   }
+  if (!(await requireChannelSubscriptions(ctx))) return;
   if (!(await isCurrentGroupOwner(ctx))) {
     await ctx.reply("Only the group owner can configure BuyBot.");
     return;
@@ -353,6 +386,8 @@ bot.command("buybot", async (ctx) => {
         customImageTelegramFileId: null,
         customImageStorageKey: null,
         customImagePublicUrl: null,
+        customImagePinataFileId: null,
+        customImageCid: null,
         awaitingCustomImage: false,
       })
       .where(eq(buybotSettings.groupId, groupId));
@@ -447,6 +482,58 @@ bot.command("buybot", async (ctx) => {
   );
 });
 
+bot.command("moderation", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  if (!(await isCurrentGroupOwner(ctx))) {
+    await ctx.reply("Only the group owner can configure moderation.");
+    return;
+  }
+
+  const groupId = String(ctx.chat.id);
+  await db
+    .insert(groupModerationSettings)
+    .values({ groupId })
+    .onConflictDoNothing({ target: groupModerationSettings.groupId });
+
+  const input = ctx.match.trim().toLowerCase();
+  if (input === "on" || input === "off") {
+    const enabled = input === "on";
+    await db
+      .update(groupModerationSettings)
+      .set({
+        welcomeEnabled: enabled,
+        verificationEnabled: enabled,
+        antiFloodEnabled: enabled,
+        updatedAt: new Date(),
+      })
+      .where(eq(groupModerationSettings.groupId, groupId));
+  } else if (input) {
+    await ctx.reply("Use /moderation, /moderation on, or /moderation off.");
+    return;
+  }
+
+  const settings = await db.query.groupModerationSettings.findFirst({
+    where: eq(groupModerationSettings.groupId, groupId),
+  });
+  if (!settings) return;
+
+  await ctx.reply(
+    [
+      "Telepons moderation",
+      "",
+      `Welcome messages: ${settings.welcomeEnabled ? "ON" : "OFF"}`,
+      `Human verification: ${settings.verificationEnabled ? "ON" : "OFF"}`,
+      `Anti-flood: ${settings.antiFloodEnabled ? "ON" : "OFF"}`,
+      `Flood threshold: ${settings.floodMaxMessages} messages / ${settings.floodWindowSeconds} seconds`,
+      `Flood mute: ${settings.muteSeconds} seconds`,
+      "",
+      "/moderation on",
+      "/moderation off",
+    ].join("\n"),
+  );
+});
+
 async function handleBuybotCustomImage(
   ctx: Context,
   telegramFileId: string,
@@ -463,8 +550,27 @@ async function handleBuybotCustomImage(
     await ctx.reply("Only the group owner can replace the BuyBot image.");
     return true;
   }
+  if (!(await requireChannelSubscriptions(ctx))) return true;
 
   try {
+    const activeSession = await db.query.launchSessions.findFirst({
+      where: and(
+        eq(launchSessions.groupId, groupId),
+        eq(launchSessions.status, "ACTIVE"),
+      ),
+    });
+    const testTarget = activeSession
+      ? null
+      : await db.query.buybotTestTargets.findFirst({
+          where: and(
+            eq(buybotTestTargets.groupId, groupId),
+            eq(buybotTestTargets.enabled, true),
+          ),
+        });
+    const tokenSymbol = activeSession
+      ? launchDraftSchema.parse(JSON.parse(activeSession.draftJson)).symbol
+      : (testTarget?.symbol ?? "TELEPONS");
+
     const telegramFile = await ctx.api.getFile(telegramFileId);
     if (!telegramFile.file_path) {
       throw new Error("TELEGRAM_FILE_PATH_MISSING");
@@ -473,6 +579,7 @@ async function handleBuybotCustomImage(
       botToken: env.TELEGRAM_BOT_TOKEN!,
       telegramFilePath: telegramFile.file_path,
       storageNamespace: `buybot-${groupId}`,
+      tokenSymbol,
     });
 
     await db
@@ -481,6 +588,8 @@ async function handleBuybotCustomImage(
         customImageTelegramFileId: telegramFileId,
         customImageStorageKey: storedImage.storageKey,
         customImagePublicUrl: storedImage.publicUrl,
+        customImagePinataFileId: storedImage.pinataFileId,
+        customImageCid: storedImage.cid,
         awaitingCustomImage: false,
       })
       .where(eq(buybotSettings.groupId, groupId));
@@ -491,6 +600,15 @@ async function handleBuybotCustomImage(
     });
   } catch (error) {
     console.error("Could not update BuyBot image", error);
+    if (
+      error instanceof Error &&
+      error.message === "PINATA_JWT_NOT_CONFIGURED"
+    ) {
+      await ctx.reply(
+        "Pinata storage is not configured. Add PINATA_JWT to the bot environment and restart it.",
+      );
+      return true;
+    }
     await ctx.reply(
       "The BuyBot image could not be saved. Send a PNG, JPEG, or WebP image under 5 MB.",
     );
@@ -517,6 +635,7 @@ bot.on("message:text", async (ctx) => {
   ) {
     return;
   }
+  if (!(await requireChannelSubscriptions(ctx))) return;
 
   const conversation = await db.query.launchConversations.findFirst({
     where: eq(launchConversations.groupId, groupId),
@@ -584,6 +703,7 @@ async function handleLaunchOrder(
   ) {
     return;
   }
+  if (!(await requireChannelSubscriptions(ctx))) return;
 
   const conversation = await db.query.launchConversations.findFirst({
     where: eq(launchConversations.groupId, groupId),
@@ -620,19 +740,30 @@ async function handleLaunchOrder(
     const groupTelegramUrl = await getGroupTelegramUrl(ctx);
     if (!groupTelegramUrl) {
       await ctx.reply(
-        "I could not resolve a link for this group. Set a public group username or ensure the bot can read an existing invite link, then try again.",
+        "This group is private. Set a public Telegram username for the group, then try again.",
       );
       return;
     }
 
-    // Validate all textual fields before downloading and storing the image.
-    if (!hasCompletedConversation && !env.OPENAI_API_KEY) {
-      parseLaunchOrderCaption(
-        suppliedCaption,
-        "https://placeholder.invalid/logo",
-        groupTelegramUrl,
-      );
-    }
+    // Parse and validate before uploading so Pinata metadata can use the token
+    // symbol and invalid orders never create orphaned IPFS files.
+    const draftTemplate = hasCompletedConversation
+      ? completeConversationDraft({
+          detailsJson: conversation.detailsJson,
+          logoUrl: "https://placeholder.invalid/logo",
+          groupTelegramUrl,
+        })
+      : env.OPENAI_API_KEY
+        ? await extractLaunchDraftWithLlm({
+            ownerMessage: suppliedCaption,
+            logoUrl: "https://placeholder.invalid/logo",
+            groupTelegramUrl,
+          })
+        : parseLaunchOrderCaption(
+            suppliedCaption,
+            "https://placeholder.invalid/logo",
+            groupTelegramUrl,
+          );
 
     const orderId = `order_${randomBytes(18).toString("base64url")}`;
     const telegramFile = await ctx.api.getFile(telegramFileId);
@@ -645,24 +776,12 @@ async function handleLaunchOrder(
       botToken: env.TELEGRAM_BOT_TOKEN!,
       telegramFilePath: telegramFile.file_path,
       storageNamespace: orderId,
+      tokenSymbol: draftTemplate.symbol,
     });
-    const draft = hasCompletedConversation
-      ? completeConversationDraft({
-          detailsJson: conversation.detailsJson,
-          logoUrl: storedLogo.publicUrl,
-          groupTelegramUrl,
-        })
-      : env.OPENAI_API_KEY
-        ? await extractLaunchDraftWithLlm({
-            ownerMessage: suppliedCaption,
-            logoUrl: storedLogo.publicUrl,
-            groupTelegramUrl,
-          })
-        : parseLaunchOrderCaption(
-            suppliedCaption,
-            storedLogo.publicUrl,
-            groupTelegramUrl,
-          );
+    const draft = launchDraftSchema.parse({
+      ...draftTemplate,
+      logoUrl: storedLogo.publicUrl,
+    });
 
     await db.insert(launchOrders).values({
       id: orderId,
@@ -674,6 +793,8 @@ async function handleLaunchOrder(
       logoStorageKey: storedLogo.storageKey,
       logoPublicUrl: storedLogo.publicUrl,
       logoMimeType: storedLogo.mimeType,
+      logoPinataFileId: storedLogo.pinataFileId,
+      logoCid: storedLogo.cid,
       status: "AWAITING_CONFIRMATION",
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     });
@@ -700,6 +821,20 @@ async function handleLaunchOrder(
 
     if (message === "UNSUPPORTED_LOGO_FORMAT") {
       await ctx.reply("Please upload the logo as a PNG, JPEG, or WebP image.");
+      return;
+    }
+
+    if (message === "PINATA_JWT_NOT_CONFIGURED") {
+      await ctx.reply(
+        "Pinata storage is not configured. Add PINATA_JWT to the bot environment and restart it.",
+      );
+      return;
+    }
+
+    if (message.startsWith("PINATA_UPLOAD_FAILED_")) {
+      await ctx.reply(
+        "The image could not be uploaded to Pinata. Check the JWT permissions and try again.",
+      );
       return;
     }
 
@@ -749,6 +884,25 @@ bot.on("message:document", async (ctx) => {
 
 bot.on("callback_query:data", async (ctx) => {
   const [action, orderId] = ctx.callbackQuery.data.split(":");
+  if (action === "check_subscriptions") {
+    if (
+      await requireChannelSubscriptions(ctx, {
+        forceRefresh: true,
+      })
+    ) {
+      await ctx.answerCallbackQuery({
+        text: "Subscription verified.",
+      });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+      await ctx.reply(
+        "Subscription verified. You can now use Telepons commands.",
+      );
+    }
+    return;
+  }
+
+  if (!(await requireChannelSubscriptions(ctx))) return;
+
   if (
     (action === "continue_session" || action === "edit_session") &&
     orderId
@@ -809,6 +963,9 @@ bot.on("callback_query:data", async (ctx) => {
         const previousDraft = launchDraftSchema.parse(
           JSON.parse(session.draftJson),
         );
+        const previousGroup = await db.query.telegramGroups.findFirst({
+          where: eq(telegramGroups.id, session.groupId),
+        });
         const keyboard = previousDraft.telegram
           ? new InlineKeyboard().url(
               "Join community",
@@ -823,7 +980,9 @@ bot.on("callback_query:data", async (ctx) => {
               caption: launchAnnouncementCaption({
                 draft: previousDraft,
                 status: "CANCELLED",
+                groupTitle: previousGroup?.title ?? "Community",
               }),
+              parse_mode: "HTML",
               reply_markup: keyboard,
             },
           );
@@ -876,7 +1035,6 @@ bot.on("callback_query:data", async (ctx) => {
     });
     return;
   }
-
   if (action === "cancel_launch") {
     await db
       .update(launchOrders)
@@ -889,6 +1047,14 @@ bot.on("callback_query:data", async (ctx) => {
     await ctx.answerCallbackQuery({ text: "Launch order cancelled." });
     await ctx.editMessageReplyMarkup({ reply_markup: undefined });
     await ctx.reply("Launch order cancelled. Run /launch to start again.");
+    return;
+  }
+
+  if (!(await getGroupTelegramUrl(ctx))) {
+    await ctx.answerCallbackQuery({
+      text: "The group must be public before a launch session can be created.",
+      show_alert: true,
+    });
     return;
   }
 
@@ -915,6 +1081,8 @@ bot.on("callback_query:data", async (ctx) => {
     storageKey: order.logoStorageKey,
     publicUrl: order.logoPublicUrl,
     mimeType: order.logoMimeType,
+    pinataFileId: order.logoPinataFileId,
+    cid: order.logoCid,
   });
 
   await db
@@ -934,12 +1102,16 @@ bot.on("callback_query:data", async (ctx) => {
     "The upcoming launch was announced in the launch-list channel.";
   try {
     const draft = launchDraftSchema.parse(JSON.parse(order.detailsJson));
+    const announcementGroup = await db.query.telegramGroups.findFirst({
+      where: eq(telegramGroups.id, order.groupId),
+    });
     const announcementMessageId = await announceLaunchSession({
       api: ctx.api,
       channel: env.TELEGRAM_LAUNCH_CHANNEL,
       draft,
       launchUrl,
       telegramFileId: order.telegramFileId,
+      groupTitle: announcementGroup?.title ?? "Community",
     });
     await db
       .update(launchOrders)
@@ -983,6 +1155,13 @@ async function main(): Promise<void> {
     `Telepons group installations: ${groupCounts.active} active, ${groupCounts.total} total`,
   );
   await rebuildVolumeTotalsFromSwaps();
+  await expirePendingVerifications(bot.api);
+  const verificationTimer = setInterval(() => {
+    void expirePendingVerifications(bot.api).catch((error) => {
+      console.error("Member-verification expiration sweep failed", error);
+    });
+  }, 30_000);
+  verificationTimer.unref();
   await expireLaunchSessions(bot.api);
   const expirationTimer = setInterval(() => {
     void expireLaunchSessions(bot.api).catch((error) => {

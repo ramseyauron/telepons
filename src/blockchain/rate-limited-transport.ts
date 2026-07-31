@@ -22,12 +22,12 @@ class RequestScheduler {
 }
 
 /**
- * Spaces requests evenly instead of allowing a burst of 20 at once. All
+ * Spaces requests evenly instead of allowing a burst at once. All
  * clients created from the same transport share one scheduler.
  */
 export function rateLimitedHttp(
   url: string,
-  requestsPerSecond = 20,
+  requestsPerSecond = 5,
 ): Transport {
   if (!Number.isInteger(requestsPerSecond) || requestsPerSecond < 1) {
     throw new Error("requestsPerSecond must be a positive integer");

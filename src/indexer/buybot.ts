@@ -10,6 +10,7 @@ import {
 } from "viem";
 import { robinhoodChain } from "@/blockchain/chain";
 import { rateLimitedHttp } from "@/blockchain/rate-limited-transport";
+import { loggedRpcCall } from "@/blockchain/rpc-logging";
 import {
   erc20ReadAbi,
   uniswapV3SwapEvent,
@@ -32,7 +33,7 @@ const client = createPublicClient({
   chain: robinhoodChain,
   transport: rateLimitedHttp(
     env.ROBINHOOD_RPC_URL ?? ponsV1.publicRpcUrl,
-    20,
+    5,
   ),
 });
 
@@ -95,12 +96,13 @@ export async function rebuildVolumeTotalsFromSwaps(): Promise<void> {
     totals.set(swap.tokenAddress, current);
   }
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     for (const [tokenAddress, total] of totals) {
       const grossVolumeWei = total.buyVolumeWei + total.sellVolumeWei;
       const netFlowWei = total.buyVolumeWei - total.sellVolumeWei;
 
-      tx.insert(tokenVolumeTotals)
+      await tx
+        .insert(tokenVolumeTotals)
         .values({
           tokenAddress,
           poolAddress: total.poolAddress,
@@ -130,29 +132,27 @@ export async function rebuildVolumeTotalsFromSwaps(): Promise<void> {
             lastTradeBlock: total.lastTradeBlock,
             updatedAt: new Date(),
           },
-        })
-        .run();
+        });
     }
   });
 }
 
-function recordSwapAndVolume(swap: SwapRecord): {
+async function recordSwapAndVolume(swap: SwapRecord): Promise<{
   inserted: boolean;
   grossVolumeWei: bigint;
-} {
-  return db.transaction((tx) => {
-    const inserted = tx
+}> {
+  return db.transaction(async (tx) => {
+    const inserted = await tx
       .insert(swaps)
       .values(swap)
       .onConflictDoNothing({ target: swaps.id })
-      .returning({ id: swaps.id })
-      .all();
+      .returning({ id: swaps.id });
 
-    const current = tx
+    const [current] = await tx
       .select()
       .from(tokenVolumeTotals)
       .where(eq(tokenVolumeTotals.tokenAddress, swap.tokenAddress))
-      .get();
+      .limit(1);
 
     if (inserted.length === 0) {
       return {
@@ -174,7 +174,8 @@ function recordSwapAndVolume(swap: SwapRecord): {
     const sellCount =
       (current?.sellCount ?? 0) + (swap.side === "SELL" ? 1 : 0);
 
-    tx.insert(tokenVolumeTotals)
+    await tx
+      .insert(tokenVolumeTotals)
       .values({
         tokenAddress: swap.tokenAddress,
         poolAddress: swap.poolAddress,
@@ -203,8 +204,7 @@ function recordSwapAndVolume(swap: SwapRecord): {
           lastTradeBlock: swap.blockNumber,
           updatedAt: new Date(),
         },
-      })
-      .run();
+      });
 
     return { inserted: true, grossVolumeWei };
   });
@@ -258,6 +258,7 @@ async function notifyBuy(input: {
       : 0n;
   const holdingPercent = (Number(holdingBps) / 100).toFixed(2);
   const transactionUrl = `${ponsV1.explorerUrl}/tx/${input.transactionHash}`;
+  const buyerUrl = `${ponsV1.explorerUrl}/address/${input.traderAddress}`;
   const symbol = escapeTelegramHtml(input.symbol);
 
   const content = [
@@ -267,7 +268,7 @@ async function notifyBuy(input: {
       `Received: ${Number(
         formatUnits(input.tokenAmountRaw, input.tokenDecimals),
       ).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${symbol}`,
-      `Buyer: <code>${escapeTelegramHtml(shortAddress(input.traderAddress))}</code>`,
+      `Buyer: <a href="${buyerUrl}">${escapeTelegramHtml(shortAddress(input.traderAddress))}</a>`,
       `Holding: ${holdingPercent}%`,
       `Volume since launch: ${Number(formatEther(input.volumeWei)).toFixed(4)} ETH`,
       "",
@@ -297,8 +298,14 @@ async function sessionTarget(
 
   let launchBlock = session.launchBlock;
   if (launchBlock === null && session.transactionHash) {
-    const receipt = await client.getTransactionReceipt({
-      hash: session.transactionHash as `0x${string}`,
+    const receipt = await loggedRpcCall({
+      operation: "eth_getTransactionReceipt",
+      context: { transactionHash: session.transactionHash },
+      call: () =>
+        client.getTransactionReceipt({
+          hash: session.transactionHash as `0x${string}`,
+        }),
+      isExpected: (value) => value.blockNumber >= 0n,
     });
     launchBlock = Number(receipt.blockNumber);
     await db
@@ -322,11 +329,24 @@ async function sessionTarget(
   };
 }
 
-async function indexTarget(api: Api, target: BuybotTarget) {
-  const tokenAddress = getAddress(target.tokenAddress);
-  const poolAddress = getAddress(target.poolAddress);
-  const settings = await groupBuybotSettings(target.groupId);
-  if (!settings?.enabled) return;
+async function indexPool(
+  api: Api,
+  targets: BuybotTarget[],
+  chainHead: bigint,
+) {
+  const firstTarget = targets[0];
+  if (!firstTarget) return;
+  const tokenAddress = getAddress(firstTarget.tokenAddress);
+  const poolAddress = getAddress(firstTarget.poolAddress);
+  const configuredTargets: Array<{
+    target: BuybotTarget;
+    settings: NonNullable<Awaited<ReturnType<typeof groupBuybotSettings>>>;
+  }> = [];
+  for (const target of targets) {
+    const settings = await groupBuybotSettings(target.groupId);
+    if (settings?.enabled) configuredTargets.push({ target, settings });
+  }
+  if (configuredTargets.length === 0) return;
 
   let checkpoint = await db.query.indexerCheckpoints.findFirst({
     where: eq(indexerCheckpoints.poolAddress, poolAddress),
@@ -335,7 +355,7 @@ async function indexTarget(api: Api, target: BuybotTarget) {
     await db.insert(indexerCheckpoints).values({
       poolAddress,
       tokenAddress,
-      nextBlock: target.startBlock,
+      nextBlock: Math.min(...targets.map((target) => target.startBlock)),
     });
     checkpoint = await db.query.indexerCheckpoints.findFirst({
       where: eq(indexerCheckpoints.poolAddress, poolAddress),
@@ -343,7 +363,6 @@ async function indexTarget(api: Api, target: BuybotTarget) {
   }
   if (!checkpoint) return;
 
-  const chainHead = await client.getBlockNumber();
   let fromBlock = BigInt(checkpoint.nextBlock);
 
   while (fromBlock <= chainHead) {
@@ -351,11 +370,21 @@ async function indexTarget(api: Api, target: BuybotTarget) {
       fromBlock + blockChunkSize - 1n < chainHead
         ? fromBlock + blockChunkSize - 1n
         : chainHead;
-    const logs = await client.getLogs({
-      address: poolAddress,
-      event: uniswapV3SwapEvent,
-      fromBlock,
-      toBlock,
+    const logs = await loggedRpcCall({
+      operation: "eth_getLogs",
+      context: {
+        poolAddress,
+        fromBlock: fromBlock.toString(),
+        toBlock: toBlock.toString(),
+      },
+      call: () =>
+        client.getLogs({
+          address: poolAddress,
+          event: uniswapV3SwapEvent,
+          fromBlock,
+          toBlock,
+        }),
+      isExpected: Array.isArray,
     });
 
     for (const log of logs) {
@@ -377,13 +406,16 @@ async function indexTarget(api: Api, target: BuybotTarget) {
       const side = pairSigned > 0n ? "BUY" : "SELL";
       const pairAmountWei = pairSigned < 0n ? -pairSigned : pairSigned;
       const tokenAmountRaw = tokenSigned < 0n ? -tokenSigned : tokenSigned;
-      const transaction = await client.getTransaction({
-        hash: log.transactionHash,
+      const transaction = await loggedRpcCall({
+        operation: "eth_getTransactionByHash",
+        context: { transactionHash: log.transactionHash, poolAddress },
+        call: () => client.getTransaction({ hash: log.transactionHash }),
+        isExpected: (value) => Boolean(value.from),
       });
       const traderAddress = getAddress(transaction.from);
       const eventId = `${robinhoodChain.id}:${log.transactionHash}:${log.logIndex}`;
 
-      const recordedVolume = recordSwapAndVolume({
+      const recordedVolume = await recordSwapAndVolume({
         id: eventId,
         tokenAddress,
         poolAddress,
@@ -396,50 +428,59 @@ async function indexTarget(api: Api, target: BuybotTarget) {
         tokenAmountRaw: tokenAmountRaw.toString(),
       });
 
-      if (
-        !recordedVolume.inserted ||
-        side !== "BUY" ||
-        pairAmountWei < BigInt(settings.minimumBuyWei)
-      ) {
+      if (!recordedVolume.inserted || side !== "BUY") {
         continue;
       }
 
-      const [tokenDecimals, holdingBalance, totalSupply] = await Promise.all([
-          client.readContract({
-            address: tokenAddress,
-            abi: erc20ReadAbi,
-            functionName: "decimals",
-          }),
-          client.readContract({
-            address: tokenAddress,
-            abi: erc20ReadAbi,
-            functionName: "balanceOf",
-            args: [traderAddress],
-          }),
-          client.readContract({
-            address: tokenAddress,
-            abi: erc20ReadAbi,
-            functionName: "totalSupply",
-          }),
-        ]);
+      const notificationTargets = configuredTargets.filter(
+        ({ settings }) => pairAmountWei >= BigInt(settings.minimumBuyWei),
+      );
+      if (notificationTargets.length === 0) continue;
 
-      await notifyBuy({
-        api,
-        groupId: target.groupId,
-        tokenAddress,
-        symbol: target.symbol,
-        transactionHash: log.transactionHash,
-        traderAddress,
-        pairAmountWei,
-        tokenAmountRaw,
-        tokenDecimals,
-        holdingBalance,
-        totalSupply,
-        volumeWei: recordedVolume.grossVolumeWei,
-        imageTelegramFileId:
-          settings.customImageTelegramFileId ??
-          target.defaultImageTelegramFileId,
+      const [tokenDecimals, holdingBalance, totalSupply] = await loggedRpcCall({
+        operation: "eth_call:buybotTokenSnapshot",
+        context: { tokenAddress, traderAddress },
+        call: () =>
+          Promise.all([
+            client.readContract({
+              address: tokenAddress,
+              abi: erc20ReadAbi,
+              functionName: "decimals",
+            }),
+            client.readContract({
+              address: tokenAddress,
+              abi: erc20ReadAbi,
+              functionName: "balanceOf",
+              args: [traderAddress],
+            }),
+            client.readContract({
+              address: tokenAddress,
+              abi: erc20ReadAbi,
+              functionName: "totalSupply",
+            }),
+          ]),
+        isExpected: (value) => value.length === 3,
       });
+
+      for (const { target, settings } of notificationTargets) {
+        await notifyBuy({
+          api,
+          groupId: target.groupId,
+          tokenAddress,
+          symbol: target.symbol,
+          transactionHash: log.transactionHash,
+          traderAddress,
+          pairAmountWei,
+          tokenAmountRaw,
+          tokenDecimals,
+          holdingBalance,
+          totalSupply,
+          volumeWei: recordedVolume.grossVolumeWei,
+          imageTelegramFileId:
+            settings.customImageTelegramFileId ??
+            target.defaultImageTelegramFileId,
+        });
+      }
     }
 
     fromBlock = toBlock + 1n;
@@ -458,13 +499,36 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
   indexing = true;
 
   try {
-    const sessions = await db.query.launchSessions.findMany({
-      where: eq(launchSessions.status, "ACTIVE"),
-    });
-    for (const session of sessions) {
+    const [sessions, testTargets, settingsRows] = await Promise.all([
+      db.query.launchSessions.findMany({
+        where: eq(launchSessions.status, "ACTIVE"),
+      }),
+      db.query.buybotTestTargets.findMany({
+        where: eq(buybotTestTargets.enabled, true),
+      }),
+      db.select().from(buybotSettings),
+    ]);
+    const enabledByGroup = new Map(
+      settingsRows.map((settings) => [settings.groupId, settings.enabled]),
+    );
+    const groupHasEnabledBuybot = (groupId: string) =>
+      enabledByGroup.get(groupId) !== false;
+    const enabledSessions = sessions.filter((session) =>
+      groupHasEnabledBuybot(session.groupId),
+    );
+    const enabledTestTargets = testTargets.filter((target) =>
+      groupHasEnabledBuybot(target.groupId),
+    );
+
+    // Database checks are intentionally completed before any RPC work. An idle
+    // installation therefore consumes zero Robinhood Chain RPC requests.
+    if (enabledSessions.length === 0 && enabledTestTargets.length === 0) return;
+
+    const targets: BuybotTarget[] = [];
+    for (const session of enabledSessions) {
       try {
         const target = await sessionTarget(session);
-        if (target) await indexTarget(api, target);
+        if (target) targets.push(target);
       } catch (error) {
         console.error(
           `BuyBot indexing failed for ${session.tokenAddress ?? session.id}`,
@@ -473,23 +537,42 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
       }
     }
 
-    const testTargets = await db.query.buybotTestTargets.findMany({
-      where: eq(buybotTestTargets.enabled, true),
+    for (const target of enabledTestTargets) {
+      targets.push({
+        groupId: target.groupId,
+        tokenAddress: target.tokenAddress,
+        poolAddress: target.poolAddress,
+        symbol: target.symbol,
+        startBlock: target.startBlock,
+      });
+    }
+
+    const targetsByPool = new Map<string, Map<string, BuybotTarget>>();
+    for (const target of targets) {
+      const poolKey = getAddress(target.poolAddress).toLowerCase();
+      const groupTargets = targetsByPool.get(poolKey) ?? new Map();
+      // An active launch target takes precedence over an equivalent test target.
+      if (!groupTargets.has(target.groupId)) {
+        groupTargets.set(target.groupId, target);
+      }
+      targetsByPool.set(poolKey, groupTargets);
+    }
+    if (targetsByPool.size === 0) return;
+
+    const chainHead = await loggedRpcCall({
+      operation: "eth_blockNumber",
+      call: () => client.getBlockNumber(),
+      isExpected: (value) => value >= 0n,
     });
-    for (const target of testTargets) {
+    for (const [poolAddress, groupTargets] of targetsByPool) {
       try {
-        await indexTarget(api, {
-          groupId: target.groupId,
-          tokenAddress: target.tokenAddress,
-          poolAddress: target.poolAddress,
-          symbol: target.symbol,
-          startBlock: target.startBlock,
-        });
+        await indexPool(api, [...groupTargets.values()], chainHead);
       } catch (error) {
-        console.error(
-          `BuyBot test indexing failed for ${target.tokenAddress}`,
+        console.error("BUYBOT_POOL_INDEX_FAILED", {
+          poolAddress,
+          targetCount: groupTargets.size,
           error,
-        );
+        });
       }
     }
   } finally {
@@ -502,24 +585,32 @@ export async function registerBuybotTestTarget(input: {
   tokenAddress: string;
 }) {
   const tokenAddress = getAddress(input.tokenAddress);
-  const [poolAddress, symbol, tokenDecimals, currentBlock] = await Promise.all([
-    client.readContract({
-      address: tokenAddress,
-      abi: erc20ReadAbi,
-      functionName: "liquidityPool",
-    }),
-    client.readContract({
-      address: tokenAddress,
-      abi: erc20ReadAbi,
-      functionName: "symbol",
-    }),
-    client.readContract({
-      address: tokenAddress,
-      abi: erc20ReadAbi,
-      functionName: "decimals",
-    }),
-    client.getBlockNumber(),
-  ]);
+  const [poolAddress, symbol, tokenDecimals, currentBlock] =
+    await loggedRpcCall({
+      operation: "registerBuybotTestTarget",
+      context: { tokenAddress },
+      call: () =>
+        Promise.all([
+          client.readContract({
+            address: tokenAddress,
+            abi: erc20ReadAbi,
+            functionName: "liquidityPool",
+          }),
+          client.readContract({
+            address: tokenAddress,
+            abi: erc20ReadAbi,
+            functionName: "symbol",
+          }),
+          client.readContract({
+            address: tokenAddress,
+            abi: erc20ReadAbi,
+            functionName: "decimals",
+          }),
+          client.getBlockNumber(),
+        ]),
+      isExpected: (value) =>
+        value.length === 4 && typeof value[3] === "bigint",
+    });
   const canonicalPool = getAddress(poolAddress);
   if (isAddressEqual(canonicalPool, zeroAddress)) {
     throw new Error("TOKEN_HAS_NO_LIQUIDITY_POOL");

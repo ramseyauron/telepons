@@ -1,6 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import path from "node:path";
 import { env } from "@/config/env";
 
 const maxLogoBytes = 5 * 1024 * 1024;
@@ -49,12 +47,96 @@ export type StoredTelegramLogo = {
   storageKey: string;
   publicUrl: string;
   mimeType: string;
+  pinataFileId?: string;
+  cid?: string;
 };
+
+type PinataUploadResponse = {
+  data?: {
+    id?: string;
+    cid?: string;
+  };
+  error?: {
+    code?: number;
+    message?: string;
+  };
+};
+
+function pinataGatewayUrl(cid: string): string {
+  const configuredGateway = env.PINATA_GATEWAY.startsWith("http")
+    ? env.PINATA_GATEWAY
+    : `https://${env.PINATA_GATEWAY}`;
+  const gateway = new URL(configuredGateway);
+  gateway.pathname = `${gateway.pathname.replace(/\/$/, "")}/ipfs/${cid}`;
+  return gateway.toString();
+}
+
+async function uploadToPinata(input: {
+  bytes: Uint8Array;
+  fileName: string;
+  mimeType: string;
+  storageNamespace: string;
+  tokenSymbol: string;
+}): Promise<StoredTelegramLogo> {
+  if (!env.PINATA_JWT) {
+    throw new Error("PINATA_JWT_NOT_CONFIGURED");
+  }
+
+  const formData = new FormData();
+  const fileBytes = new Uint8Array(input.bytes.byteLength);
+  fileBytes.set(input.bytes);
+  formData.append(
+    "file",
+    new File([fileBytes.buffer], input.fileName, { type: input.mimeType }),
+  );
+  formData.append("network", "public");
+  formData.append("name", `telepons/${input.storageNamespace}/${input.fileName}`);
+  const normalizedSymbol =
+    input.tokenSymbol.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) ||
+    "TOKEN";
+  const serializedApp = `${normalizedSymbol}-${randomBytes(6).toString("hex")}`;
+  formData.append(
+    "keyvalues",
+    JSON.stringify({
+      app: serializedApp,
+      namespace: input.storageNamespace,
+    }),
+  );
+
+  const response = await fetch("https://uploads.pinata.cloud/v3/files", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.PINATA_JWT}`,
+    },
+    body: formData,
+  });
+  const payload = (await response.json()) as PinataUploadResponse;
+  const pinataFileId = payload.data?.id;
+  const cid = payload.data?.cid;
+
+  if (!response.ok || !pinataFileId || !cid) {
+    const pinataMessage =
+      payload.error?.message?.replaceAll(/\s+/g, " ").slice(0, 240) ??
+      "UNKNOWN_PINATA_ERROR";
+    throw new Error(
+      `PINATA_UPLOAD_FAILED_${response.status}: ${pinataMessage}`,
+    );
+  }
+
+  return {
+    storageKey: `ipfs/${cid}`,
+    publicUrl: pinataGatewayUrl(cid),
+    mimeType: input.mimeType,
+    pinataFileId,
+    cid,
+  };
+}
 
 export async function downloadAndStoreTelegramLogo(input: {
   botToken: string;
   telegramFilePath: string;
   storageNamespace: string;
+  tokenSymbol: string;
 }): Promise<StoredTelegramLogo> {
   const downloadUrl =
     `https://api.telegram.org/file/bot${input.botToken}/` +
@@ -81,26 +163,11 @@ export async function downloadAndStoreTelegramLogo(input: {
   }
 
   const fileName = `${randomBytes(20).toString("hex")}.${image.extension}`;
-  const storageKey = `token-logos/${input.storageNamespace}/${fileName}`;
-  const publicDirectory = path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "token-logos",
-    input.storageNamespace,
-  );
-
-  await mkdir(publicDirectory, { recursive: true });
-  await writeFile(path.join(publicDirectory, fileName), bytes, {
-    flag: "wx",
-  });
-
-  return {
-    storageKey,
-    publicUrl: new URL(
-      `/uploads/${storageKey}`,
-      env.APP_BASE_URL,
-    ).toString(),
+  return uploadToPinata({
+    bytes,
+    fileName,
     mimeType: image.mimeType,
-  };
+    storageNamespace: input.storageNamespace,
+    tokenSymbol: input.tokenSymbol,
+  });
 }

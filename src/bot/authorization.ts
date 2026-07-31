@@ -40,9 +40,5 @@ export async function getGroupTelegramUrl(
     return `https://t.me/${chat.username}`;
   }
 
-  if ("invite_link" in chat && chat.invite_link) {
-    return chat.invite_link;
-  }
-
   return null;
 }

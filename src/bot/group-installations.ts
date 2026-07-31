@@ -1,7 +1,8 @@
 import type { Context } from "grammy";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  groupModerationSettings,
   telegramBotInstallations,
   telegramGroups,
 } from "@/db/schema";
@@ -46,13 +47,73 @@ export async function recordBotMembershipChange(
     });
 }
 
+export async function recordGroupChatMigration(ctx: Context): Promise<void> {
+  const newGroupId = ctx.message?.migrate_to_chat_id;
+  if (!newGroupId || !ctx.chat) return;
+
+  const oldGroupId = String(ctx.chat.id);
+  const migratedGroupId = String(newGroupId);
+  const title =
+    "title" in ctx.chat
+      ? (ctx.chat.title ?? "Telegram group")
+      : "Telegram group";
+  const existing = await db.query.telegramBotInstallations.findFirst({
+    where: eq(telegramBotInstallations.groupId, oldGroupId),
+  });
+  const oldModerationSettings =
+    await db.query.groupModerationSettings.findFirst({
+      where: eq(groupModerationSettings.groupId, oldGroupId),
+    });
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(telegramBotInstallations)
+      .values({
+        groupId: migratedGroupId,
+        title,
+        chatType: "supergroup",
+        active: true,
+        addedAt: existing?.addedAt ?? now,
+        removedAt: null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: telegramBotInstallations.groupId,
+        set: {
+          title,
+          chatType: "supergroup",
+          active: true,
+          removedAt: null,
+          updatedAt: now,
+        },
+      });
+    await tx
+      .delete(telegramBotInstallations)
+      .where(eq(telegramBotInstallations.groupId, oldGroupId));
+    if (oldModerationSettings) {
+      await tx
+        .insert(groupModerationSettings)
+        .values({
+          ...oldModerationSettings,
+          groupId: migratedGroupId,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({ target: groupModerationSettings.groupId });
+      await tx
+        .delete(groupModerationSettings)
+        .where(eq(groupModerationSettings.groupId, oldGroupId));
+    }
+  });
+}
+
 export async function getBotGroupCounts(): Promise<{
   active: number;
   total: number;
 }> {
   const [counts] = await db
     .select({
-      active: sql<number>`sum(case when ${telegramBotInstallations.active} = 1 then 1 else 0 end)`,
+      active: sql<number>`sum(case when ${telegramBotInstallations.active} then 1 else 0 end)`,
       total: sql<number>`count(*)`,
     })
     .from(telegramBotInstallations);

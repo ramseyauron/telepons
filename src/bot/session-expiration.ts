@@ -40,6 +40,9 @@ export async function expireLaunchSessions(api: Api): Promise<number> {
       where: eq(launchOrders.launchSessionId, session.id),
     });
     if (!order?.announcementMessageId) continue;
+    const group = await db.query.telegramGroups.findFirst({
+      where: eq(telegramGroups.id, session.groupId),
+    });
 
     const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
     try {
@@ -50,7 +53,9 @@ export async function expireLaunchSessions(api: Api): Promise<number> {
           caption: launchAnnouncementCaption({
             draft,
             status: "EXPIRED",
+            groupTitle: group?.title ?? "Community",
           }),
+          parse_mode: "HTML",
           reply_markup: launchAnnouncementKeyboard({
             draft,
             launchUrl: new URL(

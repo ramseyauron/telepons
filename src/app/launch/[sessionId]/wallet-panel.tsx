@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useAppKit,
+  useAppKitAccount,
+  useAppKitProvider,
+  type Provider,
+} from "@reown/appkit/react";
+import { useCallback, useEffect, useState } from "react";
 import {
   createPublicClient,
   createWalletClient,
@@ -24,12 +30,6 @@ type EthereumProvider = {
     params?: unknown[] | Record<string, unknown>;
   }): Promise<unknown>;
 };
-
-declare global {
-  interface Window {
-    ethereum?: EthereumProvider;
-  }
-}
 
 type WalletState =
   | { status: "IDLE" }
@@ -90,12 +90,89 @@ export function LaunchWalletPanel({
   sessionId: string;
 }) {
   const [wallet, setWallet] = useState<WalletState>({ status: "IDLE" });
+  const [activeProvider, setActiveProvider] =
+    useState<EthereumProvider | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(600);
+  const { open } = useAppKit();
+  const { address: appKitAddress, isConnected } = useAppKitAccount({
+    namespace: "eip155",
+  });
+  const { walletProvider } = useAppKitProvider<Provider>("eip155");
+  const reownConfigured = Boolean(
+    process.env.NEXT_PUBLIC_REOWN_PROJECT_ID,
+  );
   const expired = remainingSeconds <= 0;
   const publicClient = createPublicClient({
     chain: robinhoodChain,
     transport: http(robinhoodChain.rpcUrls.default.http[0]),
   });
+
+  const matchWallet = useCallback(
+    async (provider: EthereumProvider, suppliedAddress?: string) => {
+      const accounts = suppliedAddress
+        ? [suppliedAddress]
+        : ((await provider.request({
+            method: "eth_requestAccounts",
+          })) as string[]);
+      if (!accounts[0]) throw new Error("The wallet returned no account.");
+
+      const connectedAddress = getAddress(accounts[0]);
+      const expectedAddress = getAddress(expectedDeployer);
+      if (!isAddressEqual(connectedAddress, expectedAddress)) {
+        setActiveProvider(null);
+        setWallet({ status: "MISMATCH", address: connectedAddress });
+        return;
+      }
+
+      try {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: `0x${robinhoodChain.id.toString(16)}` }],
+        });
+      } catch {
+        await provider.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: `0x${robinhoodChain.id.toString(16)}`,
+              chainName: robinhoodChain.name,
+              nativeCurrency: robinhoodChain.nativeCurrency,
+              rpcUrls: robinhoodChain.rpcUrls.default.http,
+              blockExplorerUrls: [
+                robinhoodChain.blockExplorers?.default.url,
+              ],
+            },
+          ],
+        });
+      }
+
+      setActiveProvider(provider);
+      setWallet({ status: "MATCHED", address: connectedAddress });
+    },
+    [expectedDeployer],
+  );
+
+  useEffect(() => {
+    if (!isConnected || !appKitAddress || !walletProvider || expired) return;
+    const timer = window.setTimeout(() => {
+      void matchWallet(
+        walletProvider as EthereumProvider,
+        appKitAddress,
+      ).catch((error: unknown) => {
+        setActiveProvider(null);
+        setWallet({
+          status: "ERROR",
+          message: readableError(
+            error,
+            "The connected wallet could not be prepared.",
+          ),
+          retry: "CONNECT",
+        });
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [appKitAddress, expired, isConnected, matchWallet, walletProvider]);
 
   useEffect(() => {
     function updateCountdown() {
@@ -113,10 +190,26 @@ export function LaunchWalletPanel({
 
   async function connectWallet() {
     if (expired) return;
-    if (!window.ethereum) {
+    if (reownConfigured) {
+      setWallet({ status: "CONNECTING" });
+      try {
+        await open({ view: "Connect", namespace: "eip155" });
+      } catch (error) {
+        setWallet({
+          status: "ERROR",
+          message: readableError(error, "Wallet selection could not open."),
+          retry: "CONNECT",
+        });
+      }
+      return;
+    }
+
+    const injectedProvider = window.ethereum as EthereumProvider | undefined;
+    if (!injectedProvider) {
       setWallet({
         status: "ERROR",
-        message: "No injected EVM wallet was found in this browser.",
+        message:
+          "No injected EVM wallet was found. Copy this link into your wallet browser, or configure Reown for mobile wallet selection.",
         retry: "CONNECT",
       });
       return;
@@ -125,40 +218,7 @@ export function LaunchWalletPanel({
     setWallet({ status: "CONNECTING" });
 
     try {
-      const accounts = (await window.ethereum.request({
-        method: "eth_requestAccounts",
-      })) as string[];
-      const connectedAddress = getAddress(accounts[0]);
-      const expectedAddress = getAddress(expectedDeployer);
-
-      if (!isAddressEqual(connectedAddress, expectedAddress)) {
-        setWallet({ status: "MISMATCH", address: connectedAddress });
-        return;
-      }
-
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: `0x${robinhoodChain.id.toString(16)}` }],
-        });
-      } catch {
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: `0x${robinhoodChain.id.toString(16)}`,
-              chainName: robinhoodChain.name,
-              nativeCurrency: robinhoodChain.nativeCurrency,
-              rpcUrls: robinhoodChain.rpcUrls.default.http,
-              blockExplorerUrls: [
-                robinhoodChain.blockExplorers?.default.url,
-              ],
-            },
-          ],
-        });
-      }
-
-      setWallet({ status: "MATCHED", address: connectedAddress });
+      await matchWallet(injectedProvider);
     } catch (error) {
       setWallet({
         status: "ERROR",
@@ -299,7 +359,7 @@ export function LaunchWalletPanel({
   }
 
   async function submitLaunch() {
-    if (expired || wallet.status !== "SIMULATED" || !window.ethereum) return;
+    if (expired || wallet.status !== "SIMULATED" || !activeProvider) return;
 
     const prepared = wallet;
     setWallet({ status: "SUBMITTING", address: prepared.address });
@@ -308,7 +368,7 @@ export function LaunchWalletPanel({
       const walletClient = createWalletClient({
         account: getAddress(prepared.address),
         chain: robinhoodChain,
-        transport: custom(window.ethereum),
+        transport: custom(activeProvider),
       });
       const hash = await walletClient.writeContract({
         address: ponsV1.factory,
@@ -380,6 +440,12 @@ export function LaunchWalletPanel({
     }
   }
 
+  async function copyLaunchLink() {
+    await window.navigator.clipboard.writeText(window.location.href);
+    setLinkCopied(true);
+    window.setTimeout(() => setLinkCopied(false), 2_000);
+  }
+
   return (
     <section className="wallet-panel">
       <div>
@@ -405,10 +471,28 @@ export function LaunchWalletPanel({
         </div>
       )}
 
+      {wallet.status === "IDLE" && (
+        <div className="notice">
+          On mobile, Connect Wallet opens your wallet through WalletConnect. If
+          your wallet does not appear, copy the launch link and open it in the
+          wallet&apos;s browser.
+        </div>
+      )}
+
       {wallet.status === "MISMATCH" && (
         <div className="notice error">
           Wrong wallet connected: <span className="address">{wallet.address}</span>
         </div>
+      )}
+
+      {!reownConfigured && wallet.status === "ERROR" && (
+        <button
+          className="secondary-button"
+          onClick={copyLaunchLink}
+          type="button"
+        >
+          {linkCopied ? "Launch link copied" : "Copy launch link"}
+        </button>
       )}
 
       {wallet.status === "ERROR" && (

@@ -8,6 +8,46 @@
   --accent: #54f59b;
 }
 
+.verification-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at top, #262c5a 0, #101225 52%, #090a13 100%);
+}
+
+.verification-card {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 18px;
+  padding: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 24px;
+  background: rgba(15, 17, 34, 0.92);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.36);
+}
+
+.verification-card input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  color: white;
+  background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+}
+
+.verification-card button {
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 12px;
+  color: #101225;
+  background: #b7ff5a;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 * {
   box-sizing: border-box;
 }
