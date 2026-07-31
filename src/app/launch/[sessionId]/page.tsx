@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
+import { buildIpfsGatewayUrl, ipfsCidFromUrl } from "@/assets/ipfs-url";
+import { env } from "@/config/env";
 import { db } from "@/db/client";
 import { launchSessions } from "@/db/schema";
 import { launchDraftSchema } from "@/launch/schema";
@@ -23,13 +25,22 @@ export default async function LaunchSessionPage({
   }
 
   const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
+  const logoCid = draft.logoUrl ? ipfsCidFromUrl(draft.logoUrl) : undefined;
+  const fallbackLogoUrl =
+    logoCid && env.PINATA_FALLBACK_GATEWAY
+      ? buildIpfsGatewayUrl(env.PINATA_FALLBACK_GATEWAY, logoCid)
+      : undefined;
   const usable = session.status === "READY";
 
   return (
     <main className="launch-shell">
       <section className="launch-card">
         <div className="launch-heading">
-          <TokenLogo name={draft.name} url={draft.logoUrl} />
+          <TokenLogo
+            fallbackUrl={fallbackLogoUrl}
+            name={draft.name}
+            url={draft.logoUrl}
+          />
           <div>
             <p className="eyebrow">TELEPONS LAUNCH TERMINAL</p>
             <h1 className="token-title">{draft.name}</h1>

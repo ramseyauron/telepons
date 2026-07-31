@@ -2,28 +2,16 @@
 
 import { useState } from "react";
 
-function imageSources(url?: string): string[] {
-  if (!url) return [];
-
-  const sources = [url];
-  try {
-    const parsed = new URL(url);
-    const match = parsed.pathname.match(/\/ipfs\/([^/]+)/i);
-    const cid = match?.[1];
-    if (cid) {
-      sources.push(
-        `https://blue-raw-808.mypinata.cloud/ipfs/${encodeURIComponent(cid)}`,
-      );
-    }
-  } catch {
-    return [];
-  }
-
-  return [...new Set(sources)];
-}
-
-export function TokenLogo({ name, url }: { name: string; url?: string }) {
-  const sources = imageSources(url);
+export function TokenLogo({
+  fallbackUrl,
+  name,
+  url,
+}: {
+  fallbackUrl?: string;
+  name: string;
+  url?: string;
+}) {
+  const sources = [...new Set([url, fallbackUrl].filter(Boolean))] as string[];
   const [sourceIndex, setSourceIndex] = useState(0);
 
   const activeSource = sources[sourceIndex];

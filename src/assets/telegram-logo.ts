@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { env } from "@/config/env";
+import { buildIpfsGatewayUrl } from "./ipfs-url";
 
 const maxLogoBytes = 5 * 1024 * 1024;
 
@@ -63,17 +64,7 @@ type PinataUploadResponse = {
 };
 
 function pinataGatewayUrl(cid: string): string {
-  const configuredGateway = env.PINATA_GATEWAY.startsWith("http")
-    ? env.PINATA_GATEWAY
-    : `https://${env.PINATA_GATEWAY}`;
-  const gateway = new URL(configuredGateway);
-  const basePath = gateway.pathname
-    .replace(/\/+$/, "")
-    .replace(/\/ipfs$/i, "");
-  gateway.pathname = `${basePath}/ipfs/${encodeURIComponent(cid)}`;
-  gateway.search = "";
-  gateway.hash = "";
-  return gateway.toString();
+  return buildIpfsGatewayUrl(env.PINATA_GATEWAY, cid);
 }
 
 async function uploadToPinata(input: {

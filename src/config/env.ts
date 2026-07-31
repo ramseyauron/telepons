@@ -46,6 +46,10 @@ const serverEnvSchema = z.object({
     .string()
     .min(1)
     .default("https://gateway.pinata.cloud"),
+  PINATA_FALLBACK_GATEWAY: z.preprocess(
+    emptyStringToUndefined,
+    z.string().min(1).optional(),
+  ),
 });
 
 export const env = serverEnvSchema.parse({
@@ -61,4 +65,5 @@ export const env = serverEnvSchema.parse({
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   PINATA_JWT: process.env.PINATA_JWT,
   PINATA_GATEWAY: process.env.PINATA_GATEWAY,
+  PINATA_FALLBACK_GATEWAY: process.env.PINATA_FALLBACK_GATEWAY,
 });
