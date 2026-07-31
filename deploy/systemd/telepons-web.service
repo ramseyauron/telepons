@@ -19,7 +19,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
-ReadWritePaths=/opt/telepons/.next/cache
+# The leading dash prevents a missing build cache from failing namespace setup.
+# A successful release creates this directory before the service is started.
+ReadWritePaths=-/opt/telepons/.next/cache
 
 [Install]
 WantedBy=multi-user.target

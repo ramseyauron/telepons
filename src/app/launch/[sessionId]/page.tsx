@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getAddress, isAddress } from "viem";
@@ -10,6 +11,45 @@ import { LaunchWalletPanel } from "./wallet-panel";
 import { TokenLogo } from "./token-logo";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ sessionId: string }>;
+}): Promise<Metadata> {
+  const { sessionId } = await params;
+  const session = await db.query.launchSessions.findFirst({
+    where: eq(launchSessions.id, sessionId),
+  });
+
+  if (!session) {
+    return { title: "Launch session not found — Telepons" };
+  }
+
+  const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
+  const launched = session.status === "ACTIVE";
+  const title = `${draft.name} ($${draft.symbol}) — ${launched ? "Launched" : "Telepons Launch"}`;
+  const description = launched
+    ? `${draft.name} is live on Robinhood Chain. ${draft.description}`
+    : `${draft.name} is preparing to launch on Robinhood Chain. ${draft.description}`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      type: "website",
+      url: new URL(`/launch/${sessionId}`, env.APP_BASE_URL),
+      siteName: "Telepons",
+      title,
+      description,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
 
 export default async function LaunchSessionPage({
   params,

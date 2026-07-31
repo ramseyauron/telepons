@@ -16,13 +16,19 @@ set +a
 
 cd "$app_directory"
 restore_services_on_failure() {
-  systemctl start telepons-web.service telepons-bot.service 2>/dev/null || true
+  systemctl start telepons-bot.service 2>/dev/null || true
+  if [ -f "$app_directory/.next/BUILD_ID" ]; then
+    systemctl start telepons-web.service 2>/dev/null || true
+  else
+    echo "Web service was not restarted because no valid .next/BUILD_ID exists." >&2
+  fi
 }
 trap restore_services_on_failure EXIT
 
 systemctl stop telepons-web.service telepons-bot.service 2>/dev/null || true
 sudo -u telepons -H --preserve-env npm ci --include=dev
 sudo -u telepons -H --preserve-env npm run check:production
+install -d -o telepons -g telepons "$app_directory/.next/cache"
 
 # A oneshot unit with RemainAfterExit must be restarted for every release.
 systemctl restart telepons-migrate.service
