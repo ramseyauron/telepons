@@ -67,7 +67,12 @@ function pinataGatewayUrl(cid: string): string {
     ? env.PINATA_GATEWAY
     : `https://${env.PINATA_GATEWAY}`;
   const gateway = new URL(configuredGateway);
-  gateway.pathname = `${gateway.pathname.replace(/\/$/, "")}/ipfs/${cid}`;
+  const basePath = gateway.pathname
+    .replace(/\/+$/, "")
+    .replace(/\/ipfs$/i, "");
+  gateway.pathname = `${basePath}/ipfs/${encodeURIComponent(cid)}`;
+  gateway.search = "";
+  gateway.hash = "";
   return gateway.toString();
 }
 
@@ -109,14 +114,23 @@ async function uploadToPinata(input: {
       Authorization: `Bearer ${env.PINATA_JWT}`,
     },
     body: formData,
+    signal: AbortSignal.timeout(30_000),
   });
-  const payload = (await response.json()) as PinataUploadResponse;
+  const responseBody = await response.text();
+  let payload: PinataUploadResponse = {};
+  try {
+    payload = JSON.parse(responseBody) as PinataUploadResponse;
+  } catch {
+    // The status and sanitized response excerpt below still provide an
+    // actionable error when an upstream proxy returns a non-JSON body.
+  }
   const pinataFileId = payload.data?.id;
   const cid = payload.data?.cid;
 
   if (!response.ok || !pinataFileId || !cid) {
     const pinataMessage =
-      payload.error?.message?.replaceAll(/\s+/g, " ").slice(0, 240) ??
+      payload.error?.message?.replaceAll(/\s+/g, " ").slice(0, 240) ||
+      responseBody.replaceAll(/\s+/g, " ").slice(0, 240) ||
       "UNKNOWN_PINATA_ERROR";
     throw new Error(
       `PINATA_UPLOAD_FAILED_${response.status}: ${pinataMessage}`,
@@ -141,7 +155,9 @@ export async function downloadAndStoreTelegramLogo(input: {
   const downloadUrl =
     `https://api.telegram.org/file/bot${input.botToken}/` +
     input.telegramFilePath;
-  const response = await fetch(downloadUrl);
+  const response = await fetch(downloadUrl, {
+    signal: AbortSignal.timeout(30_000),
+  });
 
   if (!response.ok) {
     throw new Error(`TELEGRAM_FILE_DOWNLOAD_FAILED_${response.status}`);

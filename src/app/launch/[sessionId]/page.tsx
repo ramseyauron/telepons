@@ -1,10 +1,10 @@
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { launchSessions } from "@/db/schema";
 import { launchDraftSchema } from "@/launch/schema";
 import { LaunchWalletPanel } from "./wallet-panel";
+import { TokenLogo } from "./token-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -23,22 +23,13 @@ export default async function LaunchSessionPage({
   }
 
   const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
-  const logoPath = new URL(draft.logoUrl!).pathname;
   const usable = session.status === "READY";
 
   return (
     <main className="launch-shell">
       <section className="launch-card">
         <div className="launch-heading">
-          <Image
-            alt={`${draft.name} logo`}
-            className="token-logo"
-            height={112}
-            priority
-            src={logoPath}
-            unoptimized
-            width={112}
-          />
+          <TokenLogo name={draft.name} url={draft.logoUrl} />
           <div>
             <p className="eyebrow">TELEPONS LAUNCH TERMINAL</p>
             <h1 className="token-title">{draft.name}</h1>
