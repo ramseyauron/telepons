@@ -26,6 +26,9 @@ export default async function LaunchSessionPage({
 
   const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
   const logoCid = draft.logoUrl ? ipfsCidFromUrl(draft.logoUrl) : undefined;
+  const primaryLogoUrl = logoCid
+    ? buildIpfsGatewayUrl(env.PINATA_FETCH_GATEWAY, logoCid)
+    : draft.logoUrl;
   const fallbackLogoUrl =
     logoCid && env.PINATA_FALLBACK_FETCH_GATEWAY
       ? buildIpfsGatewayUrl(env.PINATA_FALLBACK_FETCH_GATEWAY, logoCid)
@@ -39,7 +42,7 @@ export default async function LaunchSessionPage({
           <TokenLogo
             fallbackUrl={fallbackLogoUrl}
             name={draft.name}
-            url={draft.logoUrl}
+            url={primaryLogoUrl}
           />
           <div>
             <p className="eyebrow">TELEPONS LAUNCH TERMINAL</p>
