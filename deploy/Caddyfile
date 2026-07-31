@@ -1,4 +1,8 @@
-telepons.family {
+www.telepons.bot {
+  redir https://telepons.bot{uri} permanent
+}
+
+telepons.bot {
   encode zstd gzip
   reverse_proxy 127.0.0.1:3000
 

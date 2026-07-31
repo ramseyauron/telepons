@@ -7,7 +7,7 @@ import { robinhoodChain } from "@/blockchain/chain";
 
 const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID;
 const metadataUrl =
-  process.env.NEXT_PUBLIC_APP_BASE_URL ?? "https://telepons.family";
+  process.env.NEXT_PUBLIC_APP_BASE_URL ?? "https://telepons.bot";
 
 if (projectId) {
   createAppKit({

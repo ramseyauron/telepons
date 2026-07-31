@@ -77,7 +77,7 @@ sudo editor /etc/telepons/telepons.env
 
 The PostgreSQL password inside both database URLs must be URL encoded.
 
-5. Allowlist `https://telepons.family` in the Reown dashboard.
+5. Allowlist `https://telepons.bot` in the Reown dashboard.
 6. Install and release the native services:
 
 ```bash
@@ -90,7 +90,7 @@ sudo ./deploy/release-native.sh
 ```bash
 systemctl status postgresql caddy telepons-migrate telepons-web telepons-bot
 journalctl -u telepons-web -u telepons-bot -f
-curl --fail https://telepons.family/api/health
+curl --fail https://telepons.bot/api/health
 ```
 
 Allow inbound SSH, TCP 80, TCP 443, and UDP 443. Do not allow public access to
