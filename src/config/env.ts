@@ -9,6 +9,32 @@ const optionalSecret = z.preprocess(
   z.string().min(1).optional(),
 );
 
+const publicIpfsGateway = z
+  .url()
+  .refine((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  }, "Use a public HTTPS IPFS gateway without credentials, query parameters, or fragments.");
+
+const pinataUploadUrl = z
+  .url()
+  .refine((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  }, "Use an HTTPS Pinata upload API URL without embedded credentials.");
+
 const postgresUrl = z
   .string()
   .trim()
@@ -42,13 +68,15 @@ const serverEnvSchema = z.object({
   OPENAI_API_KEY: optionalSecret,
   OPENAI_MODEL: z.string().min(1).default("gpt-5.6-sol"),
   PINATA_JWT: optionalSecret,
-  PINATA_GATEWAY: z
-    .string()
-    .min(1)
-    .default("https://gateway.pinata.cloud"),
-  PINATA_FALLBACK_GATEWAY: z.preprocess(
+  PINATA_UPLOAD_URL: pinataUploadUrl.default(
+    "https://uploads.pinata.cloud/v3/files",
+  ),
+  PINATA_FETCH_GATEWAY: publicIpfsGateway.default(
+    "https://gateway.pinata.cloud",
+  ),
+  PINATA_FALLBACK_FETCH_GATEWAY: z.preprocess(
     emptyStringToUndefined,
-    z.string().min(1).optional(),
+    publicIpfsGateway.optional(),
   ),
 });
 
@@ -64,6 +92,8 @@ export const env = serverEnvSchema.parse({
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   PINATA_JWT: process.env.PINATA_JWT,
-  PINATA_GATEWAY: process.env.PINATA_GATEWAY,
-  PINATA_FALLBACK_GATEWAY: process.env.PINATA_FALLBACK_GATEWAY,
+  PINATA_UPLOAD_URL: process.env.PINATA_UPLOAD_URL,
+  PINATA_FETCH_GATEWAY: process.env.PINATA_FETCH_GATEWAY,
+  PINATA_FALLBACK_FETCH_GATEWAY:
+    process.env.PINATA_FALLBACK_FETCH_GATEWAY,
 });

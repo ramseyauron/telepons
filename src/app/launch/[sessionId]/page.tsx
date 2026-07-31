@@ -27,8 +27,8 @@ export default async function LaunchSessionPage({
   const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
   const logoCid = draft.logoUrl ? ipfsCidFromUrl(draft.logoUrl) : undefined;
   const fallbackLogoUrl =
-    logoCid && env.PINATA_FALLBACK_GATEWAY
-      ? buildIpfsGatewayUrl(env.PINATA_FALLBACK_GATEWAY, logoCid)
+    logoCid && env.PINATA_FALLBACK_FETCH_GATEWAY
+      ? buildIpfsGatewayUrl(env.PINATA_FALLBACK_FETCH_GATEWAY, logoCid)
       : undefined;
   const usable = session.status === "READY";
 

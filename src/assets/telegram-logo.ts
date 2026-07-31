@@ -64,7 +64,7 @@ type PinataUploadResponse = {
 };
 
 function pinataGatewayUrl(cid: string): string {
-  return buildIpfsGatewayUrl(env.PINATA_GATEWAY, cid);
+  return buildIpfsGatewayUrl(env.PINATA_FETCH_GATEWAY, cid);
 }
 
 async function uploadToPinata(input: {
@@ -99,7 +99,7 @@ async function uploadToPinata(input: {
     }),
   );
 
-  const response = await fetch("https://uploads.pinata.cloud/v3/files", {
+  const response = await fetch(env.PINATA_UPLOAD_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.PINATA_JWT}`,
