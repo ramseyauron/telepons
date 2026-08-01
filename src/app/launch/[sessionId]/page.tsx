@@ -99,15 +99,19 @@ export default async function LaunchSessionPage({
     <main className="launch-shell">
       <section className="launch-card">
         <div className="launch-heading">
-          <TokenLogo
-            fallbackUrl={fallbackLogoUrl}
-            name={draft.name}
-            url={primaryLogoUrl}
-          />
-          <div>
-            <p className="eyebrow">TELEPONS LAUNCH TERMINAL</p>
-            <h1 className="token-title">{draft.name}</h1>
-            <p className="token-symbol">${draft.symbol}</p>
+          <p className="eyebrow launch-terminal-title">
+            TELEPONS LAUNCH TERMINAL
+          </p>
+          <div className="token-identity">
+            <TokenLogo
+              fallbackUrl={fallbackLogoUrl}
+              name={draft.name}
+              url={primaryLogoUrl}
+            />
+            <div>
+              <h1 className="token-title">{draft.name}</h1>
+              <p className="token-symbol">${draft.symbol}</p>
+            </div>
           </div>
         </div>
 

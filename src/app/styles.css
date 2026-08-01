@@ -138,10 +138,22 @@ h1 {
 
 .launch-heading {
   display: flex;
-  align-items: center;
-  gap: 24px;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 20px;
   padding-bottom: 32px;
   border-bottom: 1px solid var(--line);
+}
+
+.launch-terminal-title {
+  margin: 0;
+}
+
+.token-identity {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
 }
 
 .token-logo {
@@ -162,8 +174,9 @@ h1 {
 }
 
 .token-title {
-  margin: 8px 0 4px;
+  margin: 0 0 4px;
   font-size: clamp(32px, 7vw, 58px);
+  overflow-wrap: anywhere;
 }
 
 .token-symbol {
@@ -305,6 +318,12 @@ h1 {
 @media (max-width: 600px) {
   .launch-heading {
     align-items: flex-start;
+    gap: 22px;
+  }
+
+  .token-identity {
+    align-items: center;
+    gap: 18px;
   }
 
   .token-logo {
