@@ -916,11 +916,7 @@ bot.on("message:document", async (ctx) => {
 bot.on("callback_query:data", async (ctx) => {
   const [action, orderId] = ctx.callbackQuery.data.split(":");
   if (action === "check_subscriptions") {
-    if (
-      await requireChannelSubscriptions(ctx, {
-        forceRefresh: true,
-      })
-    ) {
+    if (await requireChannelSubscriptions(ctx)) {
       await ctx.answerCallbackQuery({
         text: "Subscription verified.",
       });

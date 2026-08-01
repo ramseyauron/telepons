@@ -1,12 +1,6 @@
 import { InlineKeyboard, type Context } from "grammy";
 import { env } from "@/config/env";
 
-const membershipCache = new Map<
-  string,
-  { missingChannels: string[]; expiresAt: number }
->();
-const cacheDurationMs = 60_000;
-
 function requiredChannels(): string[] {
   return [
     ...new Set(
@@ -40,31 +34,27 @@ function isSubscribed(
 
 async function missingSubscriptions(
   ctx: Context,
-  forceRefresh = false,
 ): Promise<string[]> {
   if (!ctx.from) return requiredChannels();
-
-  const userId = String(ctx.from.id);
-  const cached = membershipCache.get(userId);
-  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
-    return cached.missingChannels;
-  }
 
   const missing: string[] = [];
   for (const channel of requiredChannels()) {
     try {
       const member = await ctx.api.getChatMember(channel, ctx.from.id);
-      if (!isSubscribed(member)) missing.push(channel);
+      if (!isSubscribed(member)) {
+        console.info("TELEGRAM_SUBSCRIPTION_REQUIRED", {
+          userId: String(ctx.from.id),
+          channel,
+          status: member.status,
+        });
+        missing.push(channel);
+      }
     } catch (error) {
       console.error(`Could not verify subscription for ${channel}`, error);
       missing.push(channel);
     }
   }
 
-  membershipCache.set(userId, {
-    missingChannels: missing,
-    expiresAt: Date.now() + cacheDurationMs,
-  });
   return missing;
 }
 
@@ -78,12 +68,11 @@ function subscriptionKeyboard(missingChannels: string[]): InlineKeyboard {
 
 export async function requireChannelSubscriptions(
   ctx: Context,
-  options?: { forceRefresh?: boolean },
 ): Promise<boolean> {
-  const missing = await missingSubscriptions(
-    ctx,
-    options?.forceRefresh ?? false,
-  );
+  // Subscription is an authorization requirement, so it is checked directly
+  // against Telegram on every protected action. Successful checks are never
+  // cached because a user may leave a required channel at any time.
+  const missing = await missingSubscriptions(ctx);
   if (missing.length === 0) return true;
 
   const text = [
