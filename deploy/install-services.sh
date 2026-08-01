@@ -25,6 +25,7 @@ install -m 0644 deploy/systemd/telepons-web.service /etc/systemd/system/
 install -m 0644 deploy/systemd/telepons-bot.service /etc/systemd/system/
 install -m 0644 deploy/systemd/telepons-backup.service /etc/systemd/system/
 install -m 0644 deploy/systemd/telepons-backup.timer /etc/systemd/system/
+install -m 0755 deploy/update-native.sh /usr/local/sbin/telepons-update
 
 chown -R telepons:telepons "$app_directory"
 chmod 600 "$environment_file"
@@ -34,3 +35,4 @@ systemctl enable caddy telepons-migrate.service telepons-web.service \
   telepons-bot.service telepons-backup.timer
 
 echo "Services installed. Run deploy/release-native.sh as root to build and start."
+echo "Future updates can be deployed with: sudo telepons-update"

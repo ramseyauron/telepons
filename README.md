@@ -93,6 +93,37 @@ journalctl -u telepons-web -u telepons-bot -f
 curl --fail https://telepons.bot/api/health
 ```
 
+### Updating the VPS after a push
+
+After pushing a verified commit to the production branch, update every native
+Telepons component from any directory on the VPS:
+
+```bash
+sudo telepons-update
+```
+
+The updater requires a clean VPS working tree and performs a fast-forward-only
+update from `origin/main`. It then synchronizes the Caddy and systemd files,
+installs locked dependencies, runs the production checks and PostgreSQL
+migrations, restarts the web and bot services, and checks application health.
+
+To deploy another branch or remote explicitly:
+
+```bash
+sudo TELEPONS_BRANCH=release TELEPONS_REMOTE=origin telepons-update
+```
+
+Install or refresh the native command once after pulling the version that
+contains it:
+
+```bash
+cd /opt/telepons
+sudo ./deploy/install-services.sh
+```
+
+The updater never resets local changes or automatically rolls back the Git
+checkout. If a release fails, it prints both commit hashes for diagnosis.
+
 Allow inbound SSH, TCP 80, TCP 443, and UDP 443. Do not allow public access to
 ports 3000 or 5432. Caddy obtains and renews TLS automatically. Run exactly one
 bot service; it is the sole BuyBot indexer.
