@@ -96,10 +96,12 @@ export const memberVerifications = pgTable("member_verifications", {
   expectedAnswer: integer("expected_answer").notNull(),
   challengePrompt: text("challenge_prompt").notNull().default(""),
   verificationToken: text("verification_token").notNull().default(""),
+  challengeAccessToken: text("challenge_access_token"),
   attemptCount: integer("attempt_count").notNull().default(0),
   challengeMessageId: text("challenge_message_id"),
   expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
   verifiedAt: timestamp("verified_at", { withTimezone: true, mode: "date" }),
+  claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),

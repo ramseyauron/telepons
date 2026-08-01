@@ -14,3 +14,4 @@ public/uploads/
 *.buildinfo
 *.tsbuildinfo
 .DS_Store
+public/social

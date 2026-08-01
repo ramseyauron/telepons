@@ -15,6 +15,13 @@
       "when": 1785573045806,
       "tag": "0001_good_quentin_quire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785585642185,
+      "tag": "0002_opposite_bloodstorm",
+      "breakpoints": true
     }
   ]
 }

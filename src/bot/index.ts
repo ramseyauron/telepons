@@ -19,6 +19,7 @@ import {
 import { expireLaunchSessions } from "@/bot/session-expiration";
 import {
   expirePendingVerifications,
+  handleMemberVerificationStart,
   moderationMiddleware,
 } from "@/bot/moderation";
 import { requireChannelSubscriptions } from "@/bot/subscription";
@@ -79,6 +80,7 @@ function launchSessionKeyboard(launchUrl: string): InlineKeyboard {
 }
 
 bot.command("start", async (ctx) => {
+  if (await handleMemberVerificationStart(ctx)) return;
   if (!(await requireChannelSubscriptions(ctx))) return;
   await ctx.reply(
     "Telepons is active. Add the bot as a group administrator, then run /setup.",

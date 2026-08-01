@@ -198,9 +198,11 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
           expectedAnswer: answer,
           challengePrompt: `What is ${left} + ${right}?`,
           verificationToken,
+          challengeAccessToken: null,
           attemptCount: 0,
           expiresAt: new Date(Date.now() + verificationLifetimeMs),
           verifiedAt: null,
+          claimedAt: null,
         },
       });
     await logAction({
@@ -215,21 +217,16 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
       console.error("Could not mute pending member", error);
     }
 
-    const verificationUrl = new URL(
-      `/verify/${verificationToken}`,
-      env.APP_BASE_URL,
-    ).toString();
-    const keyboard = new InlineKeyboard();
-    if (isPublicHttpsUrl(verificationUrl)) {
-      keyboard.url("Verify human", verificationUrl);
-    } else {
-      keyboard.copyText("Copy verification link", verificationUrl);
-    }
+    const verificationDeepLink = `https://t.me/${ctx.me.username}?start=verify_${verificationToken}`;
+    const keyboard = new InlineKeyboard().url(
+      "Verify human",
+      verificationDeepLink,
+    );
     const challenge = await ctx.reply(
       [
         `Verification required for <a href="tg://user?id=${member.id}">${escapeHtml(member.first_name)}</a>.`,
         "",
-        "Open the verification page and complete the challenge within 5 minutes.",
+        "Open Telepons and complete the private challenge within 5 minutes.",
       ].join("\n"),
       { parse_mode: "HTML", reply_markup: keyboard },
     );
@@ -238,6 +235,112 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
       .set({ challengeMessageId: String(challenge.message_id) })
       .where(eq(memberVerifications.id, verificationId));
   }
+  return true;
+}
+
+export async function handleMemberVerificationStart(
+  ctx: Context,
+): Promise<boolean> {
+  if (ctx.chat?.type !== "private" || !ctx.from || !ctx.message?.text) {
+    return false;
+  }
+
+  const payload = ctx.message.text.match(/^\/start\s+verify_([A-Za-z0-9_-]{43})$/)?.[1];
+  if (!payload) return false;
+
+  const verification = await db.query.memberVerifications.findFirst({
+    where: eq(memberVerifications.verificationToken, payload),
+  });
+  if (
+    !verification ||
+    verification.status !== "PENDING" ||
+    verification.expiresAt.getTime() <= Date.now()
+  ) {
+    await ctx.reply(
+      "This verification request is unavailable or expired. Rejoin the group to request a new verification.",
+    );
+    return true;
+  }
+
+  if (verification.userId !== String(ctx.from.id)) {
+    await ctx.reply("This verification belongs to another member.");
+    await logAction({
+      groupId: verification.groupId,
+      userId: String(ctx.from.id),
+      action: "MESSAGE_BLOCKED",
+      details: {
+        reason: "VERIFICATION_IDENTITY_MISMATCH",
+        expectedUserId: verification.userId,
+      },
+    });
+    return true;
+  }
+
+  const challengeAccessToken =
+    verification.challengeAccessToken ?? randomBytes(32).toString("base64url");
+  if (!verification.challengeAccessToken) {
+    await db
+      .update(memberVerifications)
+      .set({ challengeAccessToken, claimedAt: new Date() })
+      .where(
+        and(
+          eq(memberVerifications.id, verification.id),
+          eq(memberVerifications.status, "PENDING"),
+        ),
+      );
+  }
+
+  const challengeUrl = new URL(
+    `/verify/${challengeAccessToken}`,
+    env.APP_BASE_URL,
+  ).toString();
+  const keyboard = new InlineKeyboard();
+  if (isPublicHttpsUrl(challengeUrl)) {
+    keyboard.url("Open challenge", challengeUrl);
+  } else {
+    keyboard.copyText("Copy challenge link", challengeUrl);
+  }
+
+  let groupTitle = "your community group";
+  try {
+    const group = await ctx.api.getChat(Number(verification.groupId));
+    if ("title" in group && group.title) groupTitle = group.title;
+  } catch (error) {
+    console.error("Could not load verification group", {
+      groupId: verification.groupId,
+      error,
+    });
+  }
+
+  const remainingSeconds = Math.max(
+    1,
+    Math.ceil((verification.expiresAt.getTime() - Date.now()) / 1_000),
+  );
+  await ctx.reply(
+    [
+      "Human verification",
+      "",
+      `Group: ${groupTitle}`,
+      `Time remaining: ${Math.floor(remainingSeconds / 60)}m ${remainingSeconds % 60}s`,
+      "",
+      "Complete the challenge to restore your access to the group.",
+    ].join("\n"),
+    { reply_markup: keyboard },
+  );
+
+  if (verification.challengeMessageId) {
+    try {
+      await ctx.api.editMessageText(
+        Number(verification.groupId),
+        Number(verification.challengeMessageId),
+        `⏳ <a href="tg://user?id=${verification.userId}">${escapeHtml(verification.firstName)}</a> started verification privately.`,
+        { parse_mode: "HTML" },
+      );
+    } catch (error) {
+      console.error("Could not update group verification message", error);
+    }
+  }
+
   return true;
 }
 

@@ -9,7 +9,7 @@ export default async function VerificationPage(input: {
 }) {
   const { token } = await input.params;
   const verification = await db.query.memberVerifications.findFirst({
-    where: eq(memberVerifications.verificationToken, token),
+    where: eq(memberVerifications.challengeAccessToken, token),
   });
   if (!verification) notFound();
 

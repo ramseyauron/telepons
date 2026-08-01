@@ -206,11 +206,14 @@ export default function DocsPage() {
             <h2>Welcome, verification, and anti-flood</h2>
             <p>
               Moderation is enabled by default. A new human member is muted and
-              receives a five-minute verification link. The verification page
-              presents a simple challenge; passing it restores the group&apos;s
-              allowed permissions and sends the configured welcome message.
+              receives a five-minute Verify Human button. The button first opens
+              a private chat with Telepons, where Telegram identifies the user
+              who started verification. Only the member named in the original
+              request receives the private web challenge link.
             </p>
             <ul>
+              <li>A copied group verification link cannot be claimed by another user.</li>
+              <li>The public deep-link token cannot open the web challenge directly.</li>
               <li>Five incorrect verification attempts are allowed.</li>
               <li>Messages from pending members are removed.</li>
               <li>Expired, unverified members are removed from the group.</li>

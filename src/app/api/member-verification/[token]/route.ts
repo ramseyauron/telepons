@@ -32,11 +32,12 @@ export async function POST(
   }
 
   const verification = await db.query.memberVerifications.findFirst({
-    where: eq(memberVerifications.verificationToken, token.data),
+    where: eq(memberVerifications.challengeAccessToken, token.data),
   });
   if (
     !verification ||
     verification.status !== "PENDING" ||
+    !verification.claimedAt ||
     verification.expiresAt <= new Date()
   ) {
     return Response.json(
