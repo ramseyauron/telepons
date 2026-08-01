@@ -8,7 +8,7 @@ import { launchSessions } from "@/db/schema";
 import { launchDraftSchema } from "@/launch/schema";
 
 export const alt = "Telepons token launch";
-export const size = { width: 1200, height: 630 };
+export const size = { width: 600, height: 315 };
 export const contentType = "image/png";
 
 async function fetchLogoDataUrl(url?: string): Promise<string | undefined> {
@@ -17,7 +17,7 @@ async function fetchLogoDataUrl(url?: string): Promise<string | undefined> {
   try {
     const response = await fetch(url, {
       cache: "force-cache",
-      signal: AbortSignal.timeout(4_000),
+      signal: AbortSignal.timeout(2_000),
     });
     if (!response.ok) return undefined;
 
@@ -49,7 +49,7 @@ export default async function OpenGraphImage({
           background: "#100d16",
           color: "#ffffff",
           display: "flex",
-          fontSize: 54,
+          fontSize: 27,
           height: "100%",
           justifyContent: "center",
           width: "100%",
@@ -78,7 +78,7 @@ export default async function OpenGraphImage({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        padding: "58px 64px",
+        padding: "29px 32px",
         width: "100%",
       }}
     >
@@ -86,33 +86,33 @@ export default async function OpenGraphImage({
         {logoDataUrl ? (
           <img
             alt=""
-            height="132"
+            height="66"
             src={logoDataUrl}
-            style={{ borderRadius: 30, objectFit: "cover" }}
-            width="132"
+            style={{ borderRadius: 15, objectFit: "cover" }}
+            width="66"
           />
         ) : null}
         <div
           style={{
             display: "flex",
             flexDirection: "column",
-            marginLeft: logoDataUrl ? 30 : 0,
+            marginLeft: logoDataUrl ? 15 : 0,
           }}
         >
           <div
             style={{
               color: "#ff8d71",
-              fontSize: 22,
+              fontSize: 11,
               fontWeight: 800,
-              letterSpacing: 3,
+              letterSpacing: 1.5,
             }}
           >
             TELEPONS LAUNCH TERMINAL
           </div>
-          <div style={{ fontSize: 58, fontWeight: 900, marginTop: 9 }}>
+          <div style={{ fontSize: 29, fontWeight: 900, marginTop: 4 }}>
             {draft.name}
           </div>
-          <div style={{ color: "#ff8d71", fontSize: 28, fontWeight: 800 }}>
+          <div style={{ color: "#ff8d71", fontSize: 14, fontWeight: 800 }}>
             ${draft.symbol}
           </div>
         </div>
@@ -123,34 +123,34 @@ export default async function OpenGraphImage({
           borderTop: "1px solid #ffffff22",
           display: "flex",
           flexDirection: "column",
-          marginTop: 36,
-          paddingTop: 30,
+          marginTop: 18,
+          paddingTop: 15,
         }}
       >
-        <div style={{ color: "#d6ccdf", fontSize: 25, lineHeight: 1.35 }}>
+        <div style={{ color: "#d6ccdf", fontSize: 13, lineHeight: 1.35 }}>
           {draft.description}
         </div>
-        <div style={{ display: "flex", marginTop: 28 }}>
+        <div style={{ display: "flex", marginTop: 14 }}>
           <div style={{ display: "flex", flexDirection: "column", width: "33%" }}>
-            <span style={{ color: "#998da6", fontSize: 17 }}>DEVELOPER BUY</span>
-            <span style={{ fontSize: 25, fontWeight: 700, marginTop: 6 }}>
+            <span style={{ color: "#998da6", fontSize: 9 }}>DEVELOPER BUY</span>
+            <span style={{ fontSize: 13, fontWeight: 700, marginTop: 3 }}>
               {draft.developerBuyEth} ETH
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", width: "33%" }}>
-            <span style={{ color: "#998da6", fontSize: 17 }}>NETWORK</span>
-            <span style={{ fontSize: 25, fontWeight: 700, marginTop: 6 }}>
+            <span style={{ color: "#998da6", fontSize: 9 }}>NETWORK</span>
+            <span style={{ fontSize: 13, fontWeight: 700, marginTop: 3 }}>
               Robinhood Chain
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", width: "34%" }}>
-            <span style={{ color: "#998da6", fontSize: 17 }}>STATUS</span>
+            <span style={{ color: "#998da6", fontSize: 9 }}>STATUS</span>
             <span
               style={{
                 color: launched ? "#76efad" : "#ffd06e",
-                fontSize: 25,
+                fontSize: 13,
                 fontWeight: 800,
-                marginTop: 6,
+                marginTop: 3,
               }}
             >
               {launched ? "● LAUNCHED" : `● ${session.status}`}
