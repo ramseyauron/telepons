@@ -44,6 +44,63 @@ export function renderWelcomeMessage(
     .join(mention);
 }
 
+export async function sendRollingWelcome(input: {
+  api: Api;
+  groupId: number;
+  userId: number;
+  firstName: string;
+  template?: string | null;
+}): Promise<number> {
+  const groupId = String(input.groupId);
+  await db
+    .insert(groupModerationSettings)
+    .values({ groupId })
+    .onConflictDoNothing({ target: groupModerationSettings.groupId });
+
+  return db.transaction(async (tx) => {
+    const [settings] = await tx
+      .select()
+      .from(groupModerationSettings)
+      .where(eq(groupModerationSettings.groupId, groupId))
+      .for("update")
+      .limit(1);
+
+    if (settings?.lastWelcomeMessageId) {
+      try {
+        await input.api.deleteMessage(
+          input.groupId,
+          Number(settings.lastWelcomeMessageId),
+        );
+      } catch (error) {
+        console.error("Could not delete previous welcome message", {
+          groupId,
+          messageId: settings.lastWelcomeMessageId,
+          error,
+        });
+      }
+    }
+
+    const message = await input.api.sendMessage(
+      input.groupId,
+      renderWelcomeMessage(input.template ?? settings?.welcomeMessage, {
+        id: input.userId,
+        firstName: input.firstName,
+      }),
+      { parse_mode: "HTML" },
+    );
+
+    await tx
+      .update(groupModerationSettings)
+      .set({
+        lastWelcomeMessageId: String(message.message_id),
+        updatedAt: new Date(),
+      })
+      .where(eq(groupModerationSettings.groupId, groupId));
+
+    return message.message_id;
+  });
+}
+
 async function settingsFor(groupId: string) {
   await db
     .insert(groupModerationSettings)
@@ -148,6 +205,18 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
   const settings = await settingsFor(groupId);
   if (!settings) return true;
 
+  if (ctx.message?.new_chat_members) {
+    try {
+      await ctx.deleteMessage();
+    } catch (error) {
+      console.error("Could not delete Telegram join service message", {
+        groupId,
+        messageId: ctx.message.message_id,
+        error,
+      });
+    }
+  }
+
   for (const member of newMembers) {
     if (member.id === ctx.me.id) continue;
     const userId = String(member.id);
@@ -159,13 +228,13 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
 
     if (!settings.verificationEnabled) {
       if (settings.welcomeEnabled) {
-        await ctx.reply(
-          renderWelcomeMessage(settings.welcomeMessage, {
-            id: member.id,
-            firstName: member.first_name,
-          }),
-          { parse_mode: "HTML" },
-        );
+        await sendRollingWelcome({
+          api: ctx.api,
+          groupId: ctx.chat.id,
+          userId: member.id,
+          firstName: member.first_name,
+          template: settings.welcomeMessage,
+        });
       }
       continue;
     }
@@ -395,13 +464,20 @@ async function handleVerificationCallback(ctx: Context): Promise<boolean> {
   });
   const settings = await settingsFor(String(ctx.chat.id));
   await ctx.answerCallbackQuery({ text: "Verification passed." });
-  await ctx.editMessageText(
-    renderWelcomeMessage(settings?.welcomeMessage, {
-      id: ctx.from.id,
+  try {
+    await ctx.deleteMessage();
+  } catch (error) {
+    console.error("Could not delete completed verification prompt", error);
+  }
+  if (settings?.welcomeEnabled !== false) {
+    await sendRollingWelcome({
+      api: ctx.api,
+      groupId: ctx.chat.id,
+      userId: ctx.from.id,
       firstName: ctx.from.first_name,
-    }),
-    { parse_mode: "HTML" },
-  );
+      template: settings?.welcomeMessage,
+    });
+  }
   return true;
 }
 
@@ -514,24 +590,15 @@ export async function expirePendingVerifications(api: Api): Promise<number> {
       action: "VERIFICATION_EXPIRED",
     });
 
-    try {
-      await api.banChatMember(
-        Number(verification.groupId),
-        Number(verification.userId),
-      );
-      await api.unbanChatMember(
-        Number(verification.groupId),
-        Number(verification.userId),
-        { only_if_banned: true },
-      );
-      if (verification.challengeMessageId) {
+    if (verification.challengeMessageId) {
+      try {
         await api.deleteMessage(
           Number(verification.groupId),
           Number(verification.challengeMessageId),
         );
+      } catch (error) {
+        console.error("Could not delete expired verification prompt", error);
       }
-    } catch (error) {
-      console.error("Could not remove expired unverified member", error);
     }
   }
 

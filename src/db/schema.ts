@@ -46,6 +46,7 @@ export const groupModerationSettings = pgTable(
     groupId: text("group_id").primaryKey(),
     groupDescription: text("group_description"),
     welcomeMessage: text("welcome_message"),
+    lastWelcomeMessageId: text("last_welcome_message_id"),
     welcomeEnabled: boolean("welcome_enabled")
       .notNull()
       .default(true),

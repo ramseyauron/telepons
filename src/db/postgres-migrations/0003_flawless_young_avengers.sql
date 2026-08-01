@@ -1,0 +1,1 @@
+ALTER TABLE "group_moderation_settings" ADD COLUMN "last_welcome_message_id" text;

@@ -216,7 +216,10 @@ export default function DocsPage() {
               <li>The public deep-link token cannot open the web challenge directly.</li>
               <li>Five incorrect verification attempts are allowed.</li>
               <li>Messages from pending members are removed.</li>
-              <li>Expired, unverified members are removed from the group.</li>
+              <li>Telegram join service messages are removed automatically.</li>
+              <li>Expired members remain in the group in a muted state.</li>
+              <li>An expired member&apos;s verification prompt is removed.</li>
+              <li>Only the latest successful member welcome remains visible.</li>
               <li>Bot accounts are detected and recorded.</li>
               <li>Moderation actions are recorded in the database.</li>
             </ul>

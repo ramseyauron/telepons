@@ -2,8 +2,8 @@ import { Api } from "grammy";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
-  renderWelcomeMessage,
   restoreMemberAccess,
+  sendRollingWelcome,
 } from "@/bot/moderation";
 import { env } from "@/config/env";
 import { db } from "@/db/client";
@@ -112,14 +112,15 @@ export async function POST(
         verification.groupId,
       ),
     });
-  await api.sendMessage(
-    Number(verification.groupId),
-    renderWelcomeMessage(moderationSettings?.welcomeMessage, {
-      id: Number(verification.userId),
+  if (moderationSettings?.welcomeEnabled !== false) {
+    await sendRollingWelcome({
+      api,
+      groupId: Number(verification.groupId),
+      userId: Number(verification.userId),
       firstName: verification.firstName,
-    }),
-    { parse_mode: "HTML" },
-  );
+      template: moderationSettings?.welcomeMessage,
+    });
+  }
   return Response.json({
     message: "Verification passed. You can return to Telegram.",
   });
