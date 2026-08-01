@@ -62,7 +62,7 @@ const serverEnvSchema = z.object({
   TELEGRAM_REQUIRED_CHANNELS: z
     .string()
     .min(2)
-    .default("@teleponslaunchlist,@teleponsannouncement"),
+    .default("@teleponslaunchlist,@TeleponsAnnouncement"),
   ROBINHOOD_RPC_URL: optionalUrl,
   NEXT_PUBLIC_REOWN_PROJECT_ID: optionalSecret,
   OPENAI_API_KEY: optionalSecret,

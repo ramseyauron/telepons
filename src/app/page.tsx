@@ -1,4 +1,6 @@
 import Image from "next/image";
+import Link from "next/link";
+import { teleponsLinks } from "@/config/links";
 
 export default function Home() {
   return (
@@ -17,9 +19,10 @@ export default function Home() {
           telepons
         </a>
         <div className="nav-links">
+          <Link href="/docs">Docs</Link>
           <a href="#workflow">How it works</a>
           <a href="#intelligence">Intelligence</a>
-          <a className="nav-cta" href="https://t.me/teleponslaunchlist">
+          <a className="nav-cta" href={teleponsLinks.launchList}>
             Launch list
           </a>
         </div>
@@ -48,7 +51,7 @@ export default function Home() {
             </a>
             <a
               className="button button-secondary"
-              href="https://t.me/teleponslaunchlist"
+              href={teleponsLinks.launchList}
             >
               View upcoming launches
             </a>
@@ -291,7 +294,7 @@ export default function Home() {
             the verified owner run the launch.
           </p>
         </div>
-        <a className="button button-primary" href="https://t.me/teleponslaunchlist">
+        <a className="button button-primary" href={teleponsLinks.launchList}>
           Explore launch list <span>→</span>
         </a>
       </section>
@@ -308,7 +311,12 @@ export default function Home() {
           </span>
           telepons
         </a>
-        <p>Community-native token launches on Robinhood Chain.</p>
+        <div className="site-footer-links" aria-label="Official Telepons links">
+          <a href={teleponsLinks.telegramBot}>Telegram bot</a>
+          <a href={teleponsLinks.announcementChannel}>Official channel</a>
+          <a href={teleponsLinks.launchList}>Launch list</a>
+          {teleponsLinks.x ? <a href={teleponsLinks.x}>X / Twitter</a> : null}
+        </div>
         <span>Non-custodial by design.</span>
       </footer>
     </main>

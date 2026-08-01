@@ -31,6 +31,8 @@ Optional:
 - `ROBINHOOD_RPC_URL`: defaults to the documented public RPC. Override it with a
   dedicated provider in production.
 - `NEXT_PUBLIC_REOWN_PROJECT_ID`: Reown project ID for mobile wallets.
+- `NEXT_PUBLIC_TELEPONS_X_URL`: official X/Twitter profile displayed on the
+  landing page and documentation. The X link remains hidden when unset.
 - `OPENAI_API_KEY`: required for structured token-detail extraction.
 
 The active Pons v1 factory, start block, WETH, router, locker, and other public
