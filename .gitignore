@@ -11,4 +11,6 @@ backups/
 data/
 public/uploads/
 *.log
+*.buildinfo
+*.tsbuildinfo
 .DS_Store
