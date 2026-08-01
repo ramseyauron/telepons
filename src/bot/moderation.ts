@@ -31,6 +31,19 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+export function renderWelcomeMessage(
+  template: string | null | undefined,
+  member: { id: number; firstName: string },
+): string {
+  const mention = `<a href="tg://user?id=${member.id}">${escapeHtml(member.firstName)}</a>`;
+  if (!template) return `Welcome, ${mention}!`;
+
+  return template
+    .split("{member}")
+    .map(escapeHtml)
+    .join(mention);
+}
+
 async function settingsFor(groupId: string) {
   await db
     .insert(groupModerationSettings)
@@ -147,7 +160,10 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
     if (!settings.verificationEnabled) {
       if (settings.welcomeEnabled) {
         await ctx.reply(
-          `Welcome, <a href="tg://user?id=${member.id}">${escapeHtml(member.first_name)}</a>!`,
+          renderWelcomeMessage(settings.welcomeMessage, {
+            id: member.id,
+            firstName: member.first_name,
+          }),
           { parse_mode: "HTML" },
         );
       }
@@ -274,9 +290,13 @@ async function handleVerificationCallback(ctx: Context): Promise<boolean> {
     userId: String(ctx.from.id),
     action: "VERIFICATION_PASSED",
   });
+  const settings = await settingsFor(String(ctx.chat.id));
   await ctx.answerCallbackQuery({ text: "Verification passed." });
   await ctx.editMessageText(
-    `✅ <a href="tg://user?id=${ctx.from.id}">${escapeHtml(ctx.from.first_name)}</a> verified successfully. Welcome!`,
+    renderWelcomeMessage(settings?.welcomeMessage, {
+      id: ctx.from.id,
+      firstName: ctx.from.first_name,
+    }),
     { parse_mode: "HTML" },
   );
   return true;

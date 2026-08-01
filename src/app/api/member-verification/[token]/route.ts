@@ -1,22 +1,22 @@
 import { Api } from "grammy";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { restoreMemberAccess } from "@/bot/moderation";
+import {
+  renderWelcomeMessage,
+  restoreMemberAccess,
+} from "@/bot/moderation";
 import { env } from "@/config/env";
 import { db } from "@/db/client";
-import { memberVerifications, moderationActions } from "@/db/schema";
+import {
+  groupModerationSettings,
+  memberVerifications,
+  moderationActions,
+} from "@/db/schema";
 import { randomBytes } from "node:crypto";
 
 const bodySchema = z.object({ answer: z.coerce.number().int() });
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const maximumAttempts = 5;
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
 
 export async function POST(
   request: Request,
@@ -104,9 +104,19 @@ export async function POST(
       )
       .catch(() => undefined);
   }
+  const moderationSettings =
+    await db.query.groupModerationSettings.findFirst({
+      where: eq(
+        groupModerationSettings.groupId,
+        verification.groupId,
+      ),
+    });
   await api.sendMessage(
     Number(verification.groupId),
-    `✅ Welcome, <a href="tg://user?id=${verification.userId}">${escapeHtml(verification.firstName)}</a>! You are now verified.`,
+    renderWelcomeMessage(moderationSettings?.welcomeMessage, {
+      id: Number(verification.userId),
+      firstName: verification.firstName,
+    }),
     { parse_mode: "HTML" },
   );
   return Response.json({

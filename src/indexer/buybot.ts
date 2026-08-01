@@ -5,8 +5,6 @@ import {
   formatEther,
   formatUnits,
   getAddress,
-  isAddressEqual,
-  zeroAddress,
 } from "viem";
 import { robinhoodChain } from "@/blockchain/chain";
 import { rateLimitedHttp } from "@/blockchain/rate-limited-transport";
@@ -19,7 +17,6 @@ import { env } from "@/config/env";
 import { ponsV1 } from "@/config/pons";
 import { db } from "@/db/client";
 import {
-  buybotTestTargets,
   buybotSettings,
   indexerCheckpoints,
   launchSessions,
@@ -499,12 +496,9 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
   indexing = true;
 
   try {
-    const [sessions, testTargets, settingsRows] = await Promise.all([
+    const [sessions, settingsRows] = await Promise.all([
       db.query.launchSessions.findMany({
         where: eq(launchSessions.status, "ACTIVE"),
-      }),
-      db.query.buybotTestTargets.findMany({
-        where: eq(buybotTestTargets.enabled, true),
       }),
       db.select().from(buybotSettings),
     ]);
@@ -516,13 +510,9 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
     const enabledSessions = sessions.filter((session) =>
       groupHasEnabledBuybot(session.groupId),
     );
-    const enabledTestTargets = testTargets.filter((target) =>
-      groupHasEnabledBuybot(target.groupId),
-    );
-
     // Database checks are intentionally completed before any RPC work. An idle
     // installation therefore consumes zero Robinhood Chain RPC requests.
-    if (enabledSessions.length === 0 && enabledTestTargets.length === 0) return;
+    if (enabledSessions.length === 0) return;
 
     const targets: BuybotTarget[] = [];
     for (const session of enabledSessions) {
@@ -537,21 +527,10 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
       }
     }
 
-    for (const target of enabledTestTargets) {
-      targets.push({
-        groupId: target.groupId,
-        tokenAddress: target.tokenAddress,
-        poolAddress: target.poolAddress,
-        symbol: target.symbol,
-        startBlock: target.startBlock,
-      });
-    }
-
     const targetsByPool = new Map<string, Map<string, BuybotTarget>>();
     for (const target of targets) {
       const poolKey = getAddress(target.poolAddress).toLowerCase();
       const groupTargets = targetsByPool.get(poolKey) ?? new Map();
-      // An active launch target takes precedence over an equivalent test target.
       if (!groupTargets.has(target.groupId)) {
         groupTargets.set(target.groupId, target);
       }
@@ -578,98 +557,4 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
   } finally {
     indexing = false;
   }
-}
-
-export async function registerBuybotTestTarget(input: {
-  groupId: string;
-  tokenAddress: string;
-}) {
-  const tokenAddress = getAddress(input.tokenAddress);
-  const [poolAddress, symbol, tokenDecimals, currentBlock] =
-    await loggedRpcCall({
-      operation: "registerBuybotTestTarget",
-      context: { tokenAddress },
-      call: () =>
-        Promise.all([
-          client.readContract({
-            address: tokenAddress,
-            abi: erc20ReadAbi,
-            functionName: "liquidityPool",
-          }),
-          client.readContract({
-            address: tokenAddress,
-            abi: erc20ReadAbi,
-            functionName: "symbol",
-          }),
-          client.readContract({
-            address: tokenAddress,
-            abi: erc20ReadAbi,
-            functionName: "decimals",
-          }),
-          client.getBlockNumber(),
-        ]),
-      isExpected: (value) =>
-        value.length === 4 && typeof value[3] === "bigint",
-    });
-  const canonicalPool = getAddress(poolAddress);
-  if (isAddressEqual(canonicalPool, zeroAddress)) {
-    throw new Error("TOKEN_HAS_NO_LIQUIDITY_POOL");
-  }
-  const id = `${input.groupId}:${tokenAddress}`;
-
-  await db
-    .insert(buybotTestTargets)
-    .values({
-      id,
-      groupId: input.groupId,
-      tokenAddress,
-      poolAddress: canonicalPool,
-      symbol,
-      tokenDecimals,
-      startBlock: Number(currentBlock),
-      enabled: true,
-    })
-    .onConflictDoUpdate({
-      target: buybotTestTargets.id,
-      set: {
-        poolAddress: canonicalPool,
-        symbol,
-        tokenDecimals,
-        startBlock: Number(currentBlock),
-        enabled: true,
-      },
-    });
-  await db
-    .insert(indexerCheckpoints)
-    .values({
-      poolAddress: canonicalPool,
-      tokenAddress,
-      nextBlock: Number(currentBlock),
-    })
-    .onConflictDoUpdate({
-      target: indexerCheckpoints.poolAddress,
-      set: {
-        tokenAddress,
-        nextBlock: Number(currentBlock),
-        updatedAt: new Date(),
-      },
-    });
-
-  return {
-    tokenAddress,
-    poolAddress: canonicalPool,
-    symbol,
-    startBlock: currentBlock,
-  };
-}
-
-export async function disableBuybotTestTargets(
-  groupId: string,
-): Promise<number> {
-  const disabled = await db
-    .update(buybotTestTargets)
-    .set({ enabled: false })
-    .where(eq(buybotTestTargets.groupId, groupId))
-    .returning({ id: buybotTestTargets.id });
-  return disabled.length;
 }

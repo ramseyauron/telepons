@@ -22,10 +22,9 @@ import {
   moderationMiddleware,
 } from "@/bot/moderation";
 import { requireChannelSubscriptions } from "@/bot/subscription";
+import { handleGroupSetupConversation } from "@/bot/setup-conversation";
 import {
-  disableBuybotTestTargets,
   rebuildVolumeTotalsFromSwaps,
-  registerBuybotTestTarget,
   runBuybotIndexer,
 } from "@/indexer/buybot";
 import { env } from "@/config/env";
@@ -37,8 +36,8 @@ import {
   telegramGroups,
   tokenAssets,
   buybotSettings,
-  buybotTestTargets,
   groupModerationSettings,
+  groupSetupConversations,
 } from "@/db/schema";
 import {
   getGroupTelegramUrl,
@@ -120,6 +119,58 @@ bot.command("setup", async (ctx) => {
     return;
   }
 
+  const botMember = await ctx.api.getChatMember(ctx.chat.id, ctx.me.id);
+  const canManageMembers =
+    botMember.status === "creator" ||
+    (botMember.status === "administrator" && botMember.can_restrict_members);
+
+  if (!canManageMembers) {
+    await ctx.reply(
+      [
+        "Telepons needs additional administrator permissions before setup can continue.",
+        "",
+        "Enable the Restrict Members permission for Telepons, then run /setup again.",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  try {
+    await ctx.api.setChatPermissions(
+      ctx.chat.id,
+      {
+        can_send_messages: true,
+        can_send_audios: false,
+        can_send_documents: false,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_video_notes: false,
+        can_send_voice_notes: false,
+        can_send_polls: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false,
+        can_change_info: false,
+        can_invite_users: false,
+        can_pin_messages: false,
+        can_manage_topics: false,
+      },
+      { use_independent_chat_permissions: true },
+    );
+  } catch (error) {
+    console.error("Could not configure group member permissions", {
+      groupId: String(ctx.chat.id),
+      error,
+    });
+    await ctx.reply(
+      [
+        "Telepons could not configure the group permissions.",
+        "",
+        "Confirm that the bot is an administrator with Restrict Members enabled, then run /setup again.",
+      ].join("\n"),
+    );
+    return;
+  }
+
   await db
     .insert(telegramGroups)
     .values({
@@ -142,8 +193,35 @@ bot.command("setup", async (ctx) => {
       },
     });
 
+  await db
+    .insert(groupSetupConversations)
+    .values({
+      groupId: String(ctx.chat.id),
+      ownerUserId,
+      step: "GROUP_DESCRIPTION",
+      groupDescription: null,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1_000),
+    })
+    .onConflictDoUpdate({
+      target: groupSetupConversations.groupId,
+      set: {
+        ownerUserId,
+        step: "GROUP_DESCRIPTION",
+        groupDescription: null,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1_000),
+        updatedAt: new Date(),
+      },
+    });
+
   await ctx.reply(
-    "Setup complete. Only the group owner can start and manage a token launch.",
+    [
+      "Group permissions configured.",
+      "",
+      "Default member permissions: text messages only.",
+      "",
+      "Now describe this group in 10–1,000 characters.",
+      "Mention its purpose and the kind of community you want to build.",
+    ].join("\n"),
   );
 });
 
@@ -397,45 +475,6 @@ bot.command("buybot", async (ctx) => {
     return;
   }
 
-  if (input.startsWith("test ")) {
-    const testInput = input.slice("test ".length).trim();
-    if (testInput === "off") {
-      const disabled = await disableBuybotTestTargets(groupId);
-      await ctx.reply(
-        disabled > 0
-          ? "BuyBot test monitoring stopped for this group."
-          : "No active BuyBot test target was found.",
-      );
-      return;
-    }
-
-    try {
-      const target = await registerBuybotTestTarget({
-        groupId,
-        tokenAddress: testInput,
-      });
-      await ctx.reply(
-        [
-          "BuyBot test target registered.",
-          "",
-          `Token: ${target.symbol} (${target.tokenAddress})`,
-          `Pool: ${target.poolAddress}`,
-          `Monitoring from block: ${target.startBlock}`,
-          "",
-          "Only new swaps after this command will be processed.",
-          "Use /buybot 0 to display every buy during testing.",
-          "Use /buybot test off to stop test monitoring.",
-        ].join("\n"),
-      );
-    } catch (error) {
-      console.error("Could not register BuyBot test target", error);
-      await ctx.reply(
-        "The token could not be registered. Confirm that it is a valid launched Pons token with a canonical liquidityPool().",
-      );
-    }
-    return;
-  }
-
   if (input === "on" || input === "off") {
     await db
       .update(buybotSettings)
@@ -476,8 +515,6 @@ bot.command("buybot", async (ctx) => {
       "/buybot 0.05",
       "/buybot image",
       "/buybot image reset",
-      "/buybot test 0xTokenAddress",
-      "/buybot test off",
     ].join("\n"),
   );
 });
@@ -559,17 +596,9 @@ async function handleBuybotCustomImage(
         eq(launchSessions.status, "ACTIVE"),
       ),
     });
-    const testTarget = activeSession
-      ? null
-      : await db.query.buybotTestTargets.findFirst({
-          where: and(
-            eq(buybotTestTargets.groupId, groupId),
-            eq(buybotTestTargets.enabled, true),
-          ),
-        });
     const tokenSymbol = activeSession
       ? launchDraftSchema.parse(JSON.parse(activeSession.draftJson)).symbol
-      : (testTarget?.symbol ?? "TELEPONS");
+      : "TELEPONS";
 
     const telegramFile = await ctx.api.getFile(telegramFileId);
     if (!telegramFile.file_path) {
@@ -621,6 +650,8 @@ bot.on("message:text", async (ctx) => {
   if (!isGroupContext(ctx) || ctx.message.text.startsWith("/")) {
     return;
   }
+
+  if (await handleGroupSetupConversation(ctx)) return;
 
   const groupId = String(ctx.chat.id);
   const group = await db.query.telegramGroups.findFirst({

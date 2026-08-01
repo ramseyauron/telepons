@@ -44,6 +44,8 @@ export const groupModerationSettings = pgTable(
   "group_moderation_settings",
   {
     groupId: text("group_id").primaryKey(),
+    groupDescription: text("group_description"),
+    welcomeMessage: text("welcome_message"),
     welcomeEnabled: boolean("welcome_enabled")
       .notNull()
       .default(true),
@@ -56,6 +58,27 @@ export const groupModerationSettings = pgTable(
     floodMaxMessages: integer("flood_max_messages").notNull().default(5),
     floodWindowSeconds: integer("flood_window_seconds").notNull().default(10),
     muteSeconds: integer("mute_seconds").notNull().default(60),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+);
+
+export const groupSetupConversations = pgTable(
+  "group_setup_conversations",
+  {
+    groupId: text("group_id")
+      .primaryKey()
+      .references(() => telegramGroups.id),
+    ownerUserId: text("owner_user_id").notNull(),
+    step: text("step", {
+      enum: ["GROUP_DESCRIPTION", "WELCOME_MESSAGE"],
+    }).notNull(),
+    groupDescription: text("group_description"),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
       .notNull()
       .$defaultFn(() => new Date()),
