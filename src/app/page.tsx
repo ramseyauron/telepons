@@ -19,6 +19,7 @@ export default function Home() {
           telepons
         </a>
         <div className="nav-links">
+          <Link href="/trending">Trending</Link>
           <Link href="/docs">Docs</Link>
           <a href="#workflow">How it works</a>
           <a href="#intelligence">Intelligence</a>

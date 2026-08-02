@@ -14,11 +14,13 @@ import { launchDraftSchema } from "@/launch/schema";
 export const trendingPeriods = ["1h", "6h", "24h", "7d"] as const;
 export type TrendingPeriod = (typeof trendingPeriods)[number];
 
-type TrendingEntry = {
+export type TrendingEntry = {
   name: string;
   symbol: string;
   tokenAddress: string;
   launchSessionId?: string;
+  logoUrl?: string;
+  communityUrl?: string;
   grossVolumeWei: bigint;
   buyVolumeWei: bigint;
   sellVolumeWei: bigint;
@@ -26,14 +28,20 @@ type TrendingEntry = {
   uniqueTraders: number;
 };
 
-type EmptyReason =
+export type TrendingEmptyReason =
   | "NO_TRACKED_TOKENS"
   | "NO_ACTIVITY"
   | "BELOW_REQUIREMENTS";
 
 type TrendingResult = {
   entries: TrendingEntry[];
-  emptyReason?: EmptyReason;
+  emptyReason?: TrendingEmptyReason;
+};
+
+export type TrendingLeaderboard = TrendingResult & {
+  enabled: boolean;
+  period: TrendingPeriod;
+  source: "dummy" | "onchain";
 };
 
 const periodHours: Record<TrendingPeriod, number> = {
@@ -125,7 +133,13 @@ async function onchainTrending(period: TrendingPeriod): Promise<TrendingResult> 
   );
   const metadata = new Map<
     string,
-    { name: string; symbol: string; launchSessionId: string }
+    {
+      name: string;
+      symbol: string;
+      launchSessionId: string;
+      logoUrl?: string;
+      communityUrl?: string;
+    }
   >();
   const trackedAddresses = new Set<string>();
 
@@ -139,6 +153,8 @@ async function onchainTrending(period: TrendingPeriod): Promise<TrendingResult> 
         name: draft.name,
         symbol: draft.symbol,
         launchSessionId: session.id,
+        logoUrl: draft.logoUrl,
+        communityUrl: draft.telegram,
       });
       trackedAddresses.add(session.tokenAddress);
     } catch (error) {
@@ -234,7 +250,9 @@ function formatEth(value: bigint): string {
   });
 }
 
-function emptyMessage(reason: EmptyReason | undefined): string {
+export function trendingEmptyMessage(
+  reason: TrendingEmptyReason | undefined,
+): string {
   if (reason === "NO_TRACKED_TOKENS") {
     return "No Telepons tokens are currently being tracked.";
   }
@@ -276,7 +294,7 @@ export async function renderTrending(period: TrendingPeriod): Promise<string> {
   ];
 
   if (result.entries.length === 0) {
-    lines.push(emptyMessage(result.emptyReason));
+    lines.push(trendingEmptyMessage(result.emptyReason));
   } else {
     result.entries.forEach((entry, index) => {
       const medal = ["🥇", "🥈", "🥉"][index] ?? `${index + 1}.`;
@@ -297,6 +315,25 @@ export async function renderTrending(period: TrendingPeriod): Promise<string> {
     "Updated just now",
   );
   return lines.join("\n");
+}
+
+export async function getTrendingLeaderboard(
+  period: TrendingPeriod,
+): Promise<TrendingLeaderboard> {
+  if (!env.TRENDING_ENABLED) {
+    return {
+      enabled: false,
+      source: env.TRENDING_DATA_SOURCE,
+      period,
+      entries: [],
+    };
+  }
+  return {
+    enabled: true,
+    source: env.TRENDING_DATA_SOURCE,
+    period,
+    ...(await getTrending(period)),
+  };
 }
 
 export function isTrendingPeriod(value: string): value is TrendingPeriod {

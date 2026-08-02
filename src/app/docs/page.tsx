@@ -328,6 +328,11 @@ Website: https://example.com`}</code></pre>
               least five indexed trades from two unique traders to appear.
             </p>
             <p>
+              Open the public leaderboard at <Link href="/trending">/trending</Link>.
+              It refreshes every 30 seconds and uses the same data provider as
+              the Telegram command.
+            </p>
+            <p>
               Dummy mode generates isolated demonstration entries and is always
               labelled DEMO DATA. On-chain mode reads the verified Swap records
               already collected by BuyBot, so it performs no duplicate RPC
