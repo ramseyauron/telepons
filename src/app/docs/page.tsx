@@ -19,6 +19,7 @@ const sections = [
   ["launch", "Token launch"],
   ["wallet", "Wallet execution"],
   ["buybot", "BuyBot"],
+  ["trending", "Trending"],
   ["commands", "Commands"],
   ["security", "Security"],
   ["troubleshooting", "Troubleshooting"],
@@ -318,8 +319,26 @@ Website: https://example.com`}</code></pre>
             </div>
           </section>
 
-          <section className="docs-section" id="commands">
+          <section className="docs-section" id="trending">
             <p className="docs-section-index">08</p>
+            <h2>Trending leaderboard</h2>
+            <p>
+              Trending ranks eligible Telepons tokens by gross ETH trading
+              volume over 1 hour, 6 hours, 24 hours, or 7 days. A token needs at
+              least five indexed trades from two unique traders to appear.
+            </p>
+            <p>
+              Dummy mode generates isolated demonstration entries and is always
+              labelled DEMO DATA. On-chain mode reads the verified Swap records
+              already collected by BuyBot, so it performs no duplicate RPC
+              fetching and never mixes demo rows into production volume. The
+              first on-chain activation time is persisted, excluding all volume
+              collected during the earlier dummy-testing phase.
+            </p>
+          </section>
+
+          <section className="docs-section" id="commands">
+            <p className="docs-section-index">09</p>
             <h2>Command reference</h2>
             <div className="docs-command-table">
               <div><Command>/start</Command><p>Display the initial bot instructions.</p></div>
@@ -332,6 +351,8 @@ Website: https://example.com`}</code></pre>
               <div><Command>/buybot 0.05</Command><p>Set the minimum displayed buy in ETH.</p></div>
               <div><Command>/buybot image</Command><p>Request a custom BuyBot image upload.</p></div>
               <div><Command>/buybot image reset</Command><p>Return to the original token logo.</p></div>
+              <div><Command>/trending</Command><p>Display the 24-hour volume leaderboard.</p></div>
+              <div><Command>/trending 1h</Command><p>Open a specific 1H, 6H, 24H, or 7D leaderboard.</p></div>
               <div><Command>/moderation</Command><p>Display moderation status and thresholds.</p></div>
               <div><Command>/moderation on</Command><p>Enable welcome, verification, and anti-flood.</p></div>
               <div><Command>/moderation off</Command><p>Disable all three moderation features.</p></div>
@@ -339,7 +360,7 @@ Website: https://example.com`}</code></pre>
           </section>
 
           <section className="docs-section" id="security">
-            <p className="docs-section-index">09</p>
+            <p className="docs-section-index">10</p>
             <h2>Security model</h2>
             <ul>
               <li>Only the current group owner can configure or launch.</li>
@@ -354,7 +375,7 @@ Website: https://example.com`}</code></pre>
           </section>
 
           <section className="docs-section" id="troubleshooting">
-            <p className="docs-section-index">10</p>
+            <p className="docs-section-index">11</p>
             <h2>Troubleshooting</h2>
             <div className="docs-faq">
               <details>

@@ -61,6 +61,12 @@ import {
   completeConversationDraft,
   launchConversationPrompt,
 } from "@/launch/conversation";
+import {
+  initializeTrending,
+  isTrendingPeriod,
+  renderTrending,
+  trendingKeyboard,
+} from "@/trending";
 
 if (!env.TELEGRAM_BOT_TOKEN) {
   throw new Error(
@@ -93,6 +99,7 @@ bot.on("message:migrate_to_chat_id", async (ctx) => {
   console.log(
     `Telepons group installations: ${counts.active} active, ${counts.total} total`,
   );
+  await initializeTrending();
 });
 
 bot.on("my_chat_member", async (ctx) => {
@@ -521,6 +528,19 @@ bot.command("buybot", async (ctx) => {
   );
 });
 
+bot.command("trending", async (ctx) => {
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  const requestedPeriod = ctx.match.trim().toLowerCase();
+  const period = isTrendingPeriod(requestedPeriod) ? requestedPeriod : "24h";
+  await ctx.reply(await renderTrending(period), {
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    reply_markup: env.TRENDING_ENABLED
+      ? trendingKeyboard(period)
+      : undefined,
+  });
+});
+
 bot.command("moderation", async (ctx) => {
   if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
   if (!(await requireChannelSubscriptions(ctx))) return;
@@ -932,6 +952,18 @@ bot.on("callback_query:data", async (ctx) => {
 
   if (!(await requireChannelSubscriptions(ctx))) return;
 
+  if (action === "trending" && orderId && isTrendingPeriod(orderId)) {
+    await ctx.answerCallbackQuery({ text: `${orderId.toUpperCase()} leaderboard` });
+    await ctx.editMessageText(await renderTrending(orderId), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: env.TRENDING_ENABLED
+        ? trendingKeyboard(orderId)
+        : undefined,
+    });
+    return;
+  }
+
   if (
     (action === "continue_session" || action === "edit_session") &&
     orderId
@@ -1178,6 +1210,9 @@ bot.catch((error) => {
 
 async function main(): Promise<void> {
   console.log("Starting Telepons Telegram bot");
+  console.log(
+    `Telepons Trending: ${env.TRENDING_ENABLED ? env.TRENDING_DATA_SOURCE.toUpperCase() : "DISABLED"}`,
+  );
   await backfillConfiguredGroupInstallations();
   const groupCounts = await getBotGroupCounts();
   console.log(

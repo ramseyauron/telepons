@@ -29,6 +29,27 @@
       "when": 1785608951240,
       "tag": "0003_flawless_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785650550553,
+      "tag": "0004_daily_silver_fox",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785650577806,
+      "tag": "0005_gigantic_jean_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785650750855,
+      "tag": "0006_keen_inertia",
+      "breakpoints": true
     }
   ]
 }

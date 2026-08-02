@@ -9,6 +9,10 @@ const optionalSecret = z.preprocess(
   z.string().min(1).optional(),
 );
 
+const booleanString = z
+  .enum(["true", "false"])
+  .transform((value) => value === "true");
+
 const publicIpfsGateway = z
   .url()
   .refine((value) => {
@@ -67,6 +71,11 @@ const serverEnvSchema = z.object({
   NEXT_PUBLIC_REOWN_PROJECT_ID: optionalSecret,
   OPENAI_API_KEY: optionalSecret,
   OPENAI_MODEL: z.string().min(1).default("gpt-5.6-sol"),
+  TRENDING_ENABLED: z.preprocess(
+    emptyStringToUndefined,
+    booleanString.default(false),
+  ),
+  TRENDING_DATA_SOURCE: z.enum(["dummy", "onchain"]).default("dummy"),
   PINATA_JWT: optionalSecret,
   PINATA_UPLOAD_URL: pinataUploadUrl.default(
     "https://uploads.pinata.cloud/v3/files",
@@ -91,6 +100,8 @@ export const env = serverEnvSchema.parse({
   NEXT_PUBLIC_REOWN_PROJECT_ID: process.env.NEXT_PUBLIC_REOWN_PROJECT_ID,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  TRENDING_ENABLED: process.env.TRENDING_ENABLED,
+  TRENDING_DATA_SOURCE: process.env.TRENDING_DATA_SOURCE,
   PINATA_JWT: process.env.PINATA_JWT,
   PINATA_UPLOAD_URL: process.env.PINATA_UPLOAD_URL,
   PINATA_FETCH_GATEWAY: process.env.PINATA_FETCH_GATEWAY,

@@ -339,6 +339,7 @@ async function indexPool(
     target: BuybotTarget;
     settings: NonNullable<Awaited<ReturnType<typeof groupBuybotSettings>>>;
   }> = [];
+  const blockTimestampCache = new Map<bigint, Date>();
   for (const target of targets) {
     const settings = await groupBuybotSettings(target.groupId);
     if (settings?.enabled) configuredTargets.push({ target, settings });
@@ -411,6 +412,17 @@ async function indexPool(
       });
       const traderAddress = getAddress(transaction.from);
       const eventId = `${robinhoodChain.id}:${log.transactionHash}:${log.logIndex}`;
+      let tradedAt = blockTimestampCache.get(log.blockNumber);
+      if (!tradedAt) {
+        const block = await loggedRpcCall({
+          operation: "eth_getBlockByNumber:swapTimestamp",
+          context: { blockNumber: log.blockNumber.toString(), poolAddress },
+          call: () => client.getBlock({ blockNumber: log.blockNumber! }),
+          isExpected: (value) => value.timestamp > 0n,
+        });
+        tradedAt = new Date(Number(block.timestamp) * 1_000);
+        blockTimestampCache.set(log.blockNumber, tradedAt);
+      }
 
       const recordedVolume = await recordSwapAndVolume({
         id: eventId,
@@ -423,6 +435,7 @@ async function indexPool(
         side,
         pairAmountWei: pairAmountWei.toString(),
         tokenAmountRaw: tokenAmountRaw.toString(),
+        tradedAt,
       });
 
       if (!recordedVolume.inserted || side !== "BUY") {

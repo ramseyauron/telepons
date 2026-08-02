@@ -34,6 +34,11 @@ Optional:
 - `NEXT_PUBLIC_TELEPONS_X_URL`: official X/Twitter profile displayed on the
   landing page and documentation. The X link remains hidden when unset.
 - `OPENAI_API_KEY`: required for structured token-detail extraction.
+- `TRENDING_ENABLED`: enables the `/trending` leaderboard.
+- `TRENDING_DATA_SOURCE`: `dummy` for isolated demo data or `onchain` for
+  verified Swap records already indexed by BuyBot. Changing it requires a bot
+  restart and never adds another RPC fetch. The first on-chain activation time
+  is persisted so data collected during dummy testing is excluded.
 
 The active Pons v1 factory, start block, WETH, router, locker, and other public
 protocol addresses live in `src/config/pons.ts`. They are public constants, not

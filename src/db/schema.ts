@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   pgTable,
   text,
@@ -172,21 +173,31 @@ export const indexerCheckpoints = pgTable("indexer_checkpoints", {
     .$defaultFn(() => new Date()),
 });
 
-export const swaps = pgTable("swaps", {
-  id: text("id").primaryKey(),
-  tokenAddress: text("token_address").notNull(),
-  poolAddress: text("pool_address").notNull(),
-  transactionHash: text("transaction_hash").notNull(),
-  logIndex: integer("log_index").notNull(),
-  blockNumber: integer("block_number").notNull(),
-  traderAddress: text("trader_address").notNull(),
-  side: text("side", { enum: ["BUY", "SELL"] }).notNull(),
-  pairAmountWei: text("pair_amount_wei").notNull(),
-  tokenAmountRaw: text("token_amount_raw").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
+export const swaps = pgTable(
+  "swaps",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    poolAddress: text("pool_address").notNull(),
+    transactionHash: text("transaction_hash").notNull(),
+    logIndex: integer("log_index").notNull(),
+    blockNumber: integer("block_number").notNull(),
+    traderAddress: text("trader_address").notNull(),
+    side: text("side", { enum: ["BUY", "SELL"] }).notNull(),
+    pairAmountWei: text("pair_amount_wei").notNull(),
+    tokenAmountRaw: text("token_amount_raw").notNull(),
+    tradedAt: timestamp("traded_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("swaps_token_traded_at_idx").on(
+      table.tokenAddress,
+      table.tradedAt,
+    ),
+  ],
+);
 
 export const tokenVolumeTotals = pgTable("token_volume_totals", {
   tokenAddress: text("token_address").primaryKey(),
@@ -203,6 +214,14 @@ export const tokenVolumeTotals = pgTable("token_volume_totals", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),
+});
+
+export const trendingState = pgTable("trending_state", {
+  id: text("id").primaryKey(),
+  onchainActivatedAt: timestamp("onchain_activated_at", {
+    withTimezone: true,
+    mode: "date",
+  }).notNull(),
 });
 
 export const buybotSettings = pgTable("buybot_settings", {

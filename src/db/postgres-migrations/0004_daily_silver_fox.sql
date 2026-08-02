@@ -1,0 +1,1 @@
+ALTER TABLE "swaps" ADD COLUMN "traded_at" timestamp with time zone;

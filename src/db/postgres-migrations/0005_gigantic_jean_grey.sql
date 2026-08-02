@@ -1,0 +1,1 @@
+CREATE INDEX "swaps_token_traded_at_idx" ON "swaps" USING btree ("token_address","traded_at");
