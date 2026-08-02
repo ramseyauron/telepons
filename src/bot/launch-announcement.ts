@@ -1,5 +1,6 @@
 import { InlineKeyboard, type Api } from "grammy";
 import { getAddress, isAddress } from "viem";
+import { env } from "@/config/env";
 import { ponsV1 } from "@/config/pons";
 import type { LaunchDraft } from "@/launch/schema";
 
@@ -75,7 +76,10 @@ export function launchAnnouncementKeyboard(input: {
   transactionUrl?: string;
 }): InlineKeyboard {
   if (input.tokenAddress) {
-    return launchTradingKeyboard(input.tokenAddress);
+    return tokenReportKeyboard(
+      input.tokenAddress,
+      `${env.APP_BASE_URL.replace(/\/$/, "")}/token/${getAddress(input.tokenAddress.toLowerCase())}`,
+    );
   }
 
   const keyboard = new InlineKeyboard();
@@ -111,6 +115,29 @@ export function launchTradingKeyboard(tokenAddress: string): InlineKeyboard {
       "Trade Sigma",
       `https://t.me/Sigma_buyBot?start=xbadday-${token}`,
     );
+}
+
+export function tokenReportKeyboard(
+  tokenAddress: string,
+  reportUrl: string,
+): InlineKeyboard {
+  const storedTokenAddress = tokenAddress.trim();
+  if (!isAddress(storedTokenAddress, { strict: false })) {
+    throw new Error("INVALID_TRADING_TOKEN_ADDRESS");
+  }
+  const token = getAddress(storedTokenAddress.toLowerCase());
+  const keyboard = new InlineKeyboard();
+  if (isPublicHttpsUrl(reportUrl)) {
+    keyboard.url("View token report", reportUrl).row();
+  }
+  return keyboard
+    .url(
+      "Trade on Axiom",
+      `https://axiom.trade/t/${token}/@badday?chain=robinhood`,
+    )
+    .row()
+    .url("Trade Maestro", `https://t.me/maestro?start=${token}-addictaddict`)
+    .url("Trade Sigma", `https://t.me/Sigma_buyBot?start=xbadday-${token}`);
 }
 
 export async function announceLaunchSession(input: {
@@ -165,7 +192,10 @@ export async function announceSuccessfulLaunch(input: {
     "BuyBot: 🟢 ACTIVE",
     "Volume tracking: 🟢 ACTIVE",
   ].join("\n");
-  const replyMarkup = launchTradingKeyboard(input.tokenAddress);
+  const replyMarkup = tokenReportKeyboard(
+    input.tokenAddress,
+    `${env.APP_BASE_URL.replace(/\/$/, "")}/token/${getAddress(input.tokenAddress.toLowerCase())}`,
+  );
   const options = {
     caption,
     parse_mode: "HTML",

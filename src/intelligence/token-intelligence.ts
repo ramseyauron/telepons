@@ -5,7 +5,11 @@ import { ponsV1FactoryAbi, ponsV1LockerAbi } from "@/blockchain/pons-v1-abi";
 import { robinhoodPublicClient } from "@/blockchain/public-client";
 import { loggedRpcCall } from "@/blockchain/rpc-logging";
 import { uniswapV3PoolReadAbi } from "@/blockchain/uniswap-v3-abi";
-import { launchTradingKeyboard } from "@/bot/launch-announcement";
+import {
+  launchTradingKeyboard,
+  tokenReportKeyboard,
+} from "@/bot/launch-announcement";
+import { env } from "@/config/env";
 import { ponsV1 } from "@/config/pons";
 import { db } from "@/db/client";
 import {
@@ -20,6 +24,8 @@ import { launchDraftSchema } from "@/launch/schema";
 const Q192 = 2n ** 192n;
 const ONE_ETHER = 10n ** 18n;
 const graduationMilestones = [25, 50, 75, 90, 100] as const;
+const holderMilestones = [10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000];
+const volumeMilestonesEth = [1, 5, 10, 25, 50, 100, 250, 500, 1_000];
 
 export type ActiveTokenSession = typeof launchSessions.$inferSelect & {
   tokenAddress: string;
@@ -51,6 +57,16 @@ function currentMilestone(graduationBps: number): number {
   return [...graduationMilestones]
     .reverse()
     .find((milestone) => percentage >= milestone) ?? 0;
+}
+
+function highestReachedMilestone(value: bigint, milestones: bigint[]): bigint {
+  return [...milestones]
+    .reverse()
+    .find((candidate) => value >= candidate) ?? 0n;
+}
+
+function tokenReportUrl(tokenAddress: string): string {
+  return `${env.APP_BASE_URL.replace(/\/$/, "")}/token/${getAddress(tokenAddress)}`;
 }
 
 export async function activeTokenSession(
@@ -317,6 +333,9 @@ export async function updateIntelligenceAfterSwap(input: {
   const volume = await db.query.tokenVolumeTotals.findFirst({
     where: eq(tokenVolumeTotals.tokenAddress, first.tokenAddress),
   });
+  const holders = await db.query.tokenHolderStats.findFirst({
+    where: eq(tokenHolderStats.tokenAddress, first.tokenAddress),
+  });
 
   for (const session of input.sessions) {
     await db
@@ -327,6 +346,60 @@ export async function updateIntelligenceAfterSwap(input: {
       where: eq(groupTokenIntelligence.groupId, session.groupId),
     });
     if (!settings) continue;
+
+    if (settings.milestonesEnabled) {
+      const holderMilestone = Number(
+        highestReachedMilestone(
+          BigInt(holders?.adjustedHolderCount ?? 0),
+          holderMilestones.map(BigInt),
+        ),
+      );
+      const volumeMilestone = highestReachedMilestone(
+        BigInt(volume?.grossVolumeWei ?? "0"),
+        volumeMilestonesEth.map((value) => BigInt(value) * ONE_ETHER),
+      );
+      const holderReached = holderMilestone > settings.lastHolderMilestone;
+      const volumeReached =
+        volumeMilestone > BigInt(settings.lastVolumeMilestoneWei);
+
+      if (holderReached || volumeReached) {
+        const draft = launchDraftSchema.parse(JSON.parse(session.draftJson));
+        const lines = [
+          `🎉 <b>${escapeHtml(draft.symbol)} COMMUNITY MILESTONE</b>`,
+          "",
+          holderReached
+            ? `Holders reached ${holderMilestone.toLocaleString("en-US")}.`
+            : null,
+          volumeReached
+            ? `Volume reached ${Number(formatEther(volumeMilestone)).toLocaleString("en-US", { maximumFractionDigits: 2 })} ETH.`
+            : null,
+          "",
+          `Current holders: ${(holders?.adjustedHolderCount ?? 0).toLocaleString("en-US")}`,
+          `Volume since launch: ${Number(formatEther(BigInt(volume?.grossVolumeWei ?? "0"))).toLocaleString("en-US", { maximumFractionDigits: 4 })} ETH`,
+          `Graduation: ${(snapshot.graduationBps / 100).toFixed(2)}%`,
+        ].filter((line): line is string => line !== null);
+        await input.api.sendMessage(Number(session.groupId), lines.join("\n"), {
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+          reply_markup: tokenReportKeyboard(
+            session.tokenAddress,
+            tokenReportUrl(session.tokenAddress),
+          ),
+        });
+        await db
+          .update(groupTokenIntelligence)
+          .set({
+            lastHolderMilestone: holderReached
+              ? holderMilestone
+              : settings.lastHolderMilestone,
+            lastVolumeMilestoneWei: volumeReached
+              ? volumeMilestone.toString()
+              : settings.lastVolumeMilestoneWei,
+            updatedAt: new Date(),
+          })
+          .where(eq(groupTokenIntelligence.groupId, session.groupId));
+      }
+    }
 
     if (
       settings.volumeAlertThresholdWei &&

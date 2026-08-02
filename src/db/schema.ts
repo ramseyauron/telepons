@@ -296,6 +296,13 @@ export const groupTokenIntelligence = pgTable(
     graduationAlertsEnabled: boolean("graduation_alerts_enabled")
       .notNull()
       .default(true),
+    milestonesEnabled: boolean("milestones_enabled").notNull().default(true),
+    lastHolderMilestone: integer("last_holder_milestone")
+      .notNull()
+      .default(0),
+    lastVolumeMilestoneWei: text("last_volume_milestone_wei")
+      .notNull()
+      .default("0"),
     lastGraduationMilestone: integer("last_graduation_milestone")
       .notNull()
       .default(0),

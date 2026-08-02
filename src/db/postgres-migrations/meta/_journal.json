@@ -57,6 +57,13 @@
       "when": 1785662119115,
       "tag": "0007_public_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785699891626,
+      "tag": "0008_complex_warbound",
+      "breakpoints": true
     }
   ]
 }

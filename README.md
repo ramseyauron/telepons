@@ -56,6 +56,11 @@ remain the single source for BuyBot, volume, price, and Trending; holder events
 use an independent per-token checkpoint. All server-side Robinhood reads within
 each process share the five-request-per-second transport.
 
+The milestone engine publishes new holder and gross-volume achievements without
+additional chain reads. `/panel` gives the current group owner inline controls,
+and `/report` exposes a shareable `/token/<address>` page with dynamic social
+metadata, community links, trading actions, and the latest indexed statistics.
+
 ## Production architecture
 
 The complete production stack runs natively on one Ubuntu VPS:

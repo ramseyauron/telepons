@@ -2184,3 +2184,42 @@ html {
     justify-content: flex-start;
   }
 }
+
+/* Public token report */
+.token-report-page { min-height: 100vh; background: radial-gradient(circle at 80% 5%, rgba(80,239,155,.14), transparent 32%), #06150f; color: #effff5; padding: 0 24px 64px; }
+.report-nav { max-width: 1120px; margin: 0 auto; }
+.token-report-shell { max-width: 980px; margin: 48px auto 0; padding: 44px; border: 1px solid rgba(80,239,155,.25); border-radius: 30px; background: rgba(5,25,17,.9); box-shadow: 0 30px 90px rgba(0,0,0,.3); }
+.token-report-header { display: flex; align-items: center; gap: 24px; }
+.token-report-header h1 { margin: 6px 0 2px; font-size: clamp(2.2rem, 6vw, 4.5rem); line-height: .95; }
+.token-report-header strong { color: #50ef9b; font-size: 1.4rem; }
+.report-logo { width: 128px; height: 128px; border-radius: 26px; object-fit: cover; border: 1px solid rgba(80,239,155,.3); }
+.report-logo-fallback { display: grid; place-items: center; background: #103725; color: #50ef9b; font-size: 3.5rem; font-weight: 900; }
+.report-live { margin-left: auto; align-self: flex-start; padding: 9px 13px; border-radius: 999px; background: rgba(80,239,155,.12); color: #50ef9b; font-size: .78rem; font-weight: 900; }
+.token-report-description { margin: 34px 0; max-width: 760px; color: #b7cbbf; font-size: 1.08rem; line-height: 1.7; }
+.report-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.report-metrics div { min-height: 104px; padding: 19px; border-radius: 18px; background: rgba(80,239,155,.055); border: 1px solid rgba(80,239,155,.13); display: flex; flex-direction: column; justify-content: space-between; }
+.report-metrics span, .report-contract span, .report-graduation span { color: #89a696; font-size: .76rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.report-metrics strong { font-size: 1.3rem; }
+.report-graduation, .report-contract { margin-top: 16px; padding: 22px; border-radius: 18px; border: 1px solid rgba(80,239,155,.13); }
+.report-graduation > div:first-child { display: flex; justify-content: space-between; align-items: center; }
+.report-graduation p { margin: 13px 0 0; color: #789184; font-size: .82rem; }
+.report-progress { height: 9px; margin-top: 16px; border-radius: 999px; background: #112c20; overflow: hidden; }
+.report-progress span { display: block; height: 100%; background: #50ef9b; border-radius: inherit; }
+.report-contract { display: flex; flex-direction: column; gap: 9px; }
+.report-contract a { color: #effff5; overflow-wrap: anywhere; }
+.report-actions { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; margin-top: 22px; }
+.report-actions a { display: grid; place-items: center; min-height: 54px; padding: 10px 14px; border: 1px solid rgba(80,239,155,.25); border-radius: 14px; color: #dffbed; font-weight: 800; text-decoration: none; }
+.report-actions a.primary { background: #50ef9b; color: #052013; }
+.report-actions a:last-child { grid-column: 1 / -1; }
+.token-report-footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 26px; color: #718a7c; font-size: .78rem; }
+@media (max-width: 720px) {
+  .token-report-page { padding-inline: 12px; }
+  .token-report-shell { margin-top: 20px; padding: 24px; border-radius: 22px; }
+  .token-report-header { align-items: flex-start; flex-wrap: wrap; }
+  .report-logo { width: 86px; height: 86px; border-radius: 19px; }
+  .report-live { margin-left: 0; }
+  .report-metrics { grid-template-columns: repeat(2, 1fr); }
+  .report-actions { grid-template-columns: 1fr; }
+  .report-actions a:last-child { grid-column: auto; }
+  .token-report-footer { flex-direction: column; }
+}

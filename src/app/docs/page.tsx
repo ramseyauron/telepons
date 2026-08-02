@@ -360,6 +360,8 @@ Website: https://example.com`}</code></pre>
               <li>Known pool and system addresses are excluded from adjusted holders.</li>
               <li>Contract-address messages are compared with the official group token.</li>
               <li>Creator, early-buyer, and whale labels are factual heuristics.</li>
+              <li>Holder and volume milestones can be announced automatically.</li>
+              <li>Every active token has a public, shareable report page.</li>
             </ul>
             <div className="docs-note">
               Graduation represents a liquidity threshold. Telepons never
@@ -392,6 +394,9 @@ Website: https://example.com`}</code></pre>
               <div><Command>/contract</Command><p>Display the official token contract.</p></div>
               <div><Command>/dashboard</Command><p>Create or refresh the pinned live dashboard.</p></div>
               <div><Command>/alerts</Command><p>Configure graduation and one-shot volume alerts.</p></div>
+              <div><Command>/milestones</Command><p>Configure automatic holder and volume milestones.</p></div>
+              <div><Command>/report</Command><p>Open or copy the public token report.</p></div>
+              <div><Command>/panel</Command><p>Open the group owner control panel.</p></div>
               <div><Command>/fees</Command><p>Read the creator/protocol split and payout wallet.</p></div>
               <div><Command>/moderation</Command><p>Display moderation status and thresholds.</p></div>
               <div><Command>/moderation on</Command><p>Enable welcome, verification, and anti-flood.</p></div>

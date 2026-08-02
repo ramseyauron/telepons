@@ -2,7 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
 import { and, eq } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
-import { formatEther, parseEther } from "viem";
+import { formatEther, getAddress, parseEther } from "viem";
 import { ZodError } from "zod";
 import { downloadAndStoreTelegramLogo } from "@/assets/telegram-logo";
 import {
@@ -25,6 +25,11 @@ import {
 } from "@/bot/moderation";
 import { requireChannelSubscriptions } from "@/bot/subscription";
 import { handleGroupSetupConversation } from "@/bot/setup-conversation";
+import {
+  applyOwnerPanelAction,
+  renderOwnerPanel,
+  type OwnerPanelAction,
+} from "@/bot/owner-panel";
 import {
   flushBuybotAggregates,
   rebuildVolumeTotalsFromSwaps,
@@ -760,6 +765,95 @@ bot.command("alerts", async (ctx) => {
       "/alerts volume off",
     ].join("\n"),
   );
+});
+
+bot.command("milestones", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  if (!(await isCurrentGroupOwner(ctx))) {
+    await ctx.reply("Only the group owner can configure milestone announcements.");
+    return;
+  }
+  const groupId = String(ctx.chat.id);
+  await db.insert(groupTokenIntelligence).values({ groupId }).onConflictDoNothing({ target: groupTokenIntelligence.groupId });
+  const input = ctx.match.trim().toLowerCase();
+  if (input === "on" || input === "off") {
+    await db.update(groupTokenIntelligence).set({ milestonesEnabled: input === "on", updatedAt: new Date() }).where(eq(groupTokenIntelligence.groupId, groupId));
+  } else if (input) {
+    await ctx.reply("Use /milestones, /milestones on, or /milestones off.");
+    return;
+  }
+  const settings = await db.query.groupTokenIntelligence.findFirst({ where: eq(groupTokenIntelligence.groupId, groupId) });
+  await ctx.reply([
+    "🎉 Telepons milestone engine",
+    "",
+    `Status: ${settings?.milestonesEnabled ? "ON" : "OFF"}`,
+    "Tracks holder and gross-volume milestones using existing indexed data.",
+    "",
+    "/milestones on",
+    "/milestones off",
+  ].join("\n"));
+});
+
+bot.command("panel", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  if (!(await isCurrentGroupOwner(ctx))) {
+    await ctx.reply("Only the group owner can open the Telepons control panel.");
+    return;
+  }
+  const panel = await renderOwnerPanel(String(ctx.chat.id));
+  await ctx.reply(panel.text, { parse_mode: "HTML", reply_markup: panel.keyboard });
+});
+
+bot.command("report", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  const session = await activeTokenSession(String(ctx.chat.id));
+  if (!session) {
+    await ctx.reply("The public token report becomes available after this group launches a token.");
+    return;
+  }
+  const reportUrl = `${env.APP_BASE_URL.replace(/\/$/, "")}/token/${getAddress(session.tokenAddress)}`;
+  const keyboard = new InlineKeyboard();
+  if (isPublicHttpsUrl(reportUrl)) keyboard.url("Open token report", reportUrl).row();
+  keyboard.copyText("Copy report link", reportUrl);
+  await ctx.reply(
+    [
+      "📊 Public token report",
+      "",
+      reportUrl,
+      "",
+      "Share this link on Telegram or X for live token, volume, holder, and graduation data.",
+    ].join("\n"),
+    { reply_markup: keyboard, link_preview_options: { is_disabled: false } },
+  );
+});
+
+bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|refresh)$/, async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  if (!(await isCurrentGroupOwner(ctx))) {
+    await ctx.answerCallbackQuery({ text: "Only the group owner can use this panel.", show_alert: true });
+    return;
+  }
+  const action = ctx.match[1] as OwnerPanelAction;
+  if (action !== "refresh") await applyOwnerPanelAction(String(ctx.chat.id), action);
+  if (action === "dashboard") {
+    const settings = await db.query.groupTokenIntelligence.findFirst({
+      where: eq(groupTokenIntelligence.groupId, String(ctx.chat.id)),
+    });
+    if (settings?.dashboardEnabled) {
+      try {
+        await ensureLiveDashboard(ctx.api, String(ctx.chat.id));
+      } catch (error) {
+        console.error("Could not activate dashboard from owner panel", error);
+      }
+    }
+  }
+  const panel = await renderOwnerPanel(String(ctx.chat.id));
+  await ctx.editMessageText(panel.text, { parse_mode: "HTML", reply_markup: panel.keyboard });
+  await ctx.answerCallbackQuery({ text: action === "refresh" ? "Panel refreshed" : "Setting updated" });
 });
 
 bot.command("contract", async (ctx) => {
