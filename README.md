@@ -60,6 +60,9 @@ The milestone engine publishes new holder and gross-volume achievements without
 additional chain reads. `/panel` gives the current group owner inline controls,
 and `/report` exposes a shareable `/token/<address>` page with dynamic social
 metadata, community links, trading actions, and the latest indexed statistics.
+`/community` combines Telegram's current member count with durable verification,
+moderation, and daily member-count snapshots. Growth is only shown when a real
+24-hour or 7-day baseline exists; no individual member details are exposed.
 
 ## Production architecture
 

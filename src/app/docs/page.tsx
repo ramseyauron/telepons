@@ -397,6 +397,7 @@ Website: https://example.com`}</code></pre>
               <div><Command>/milestones</Command><p>Configure automatic holder and volume milestones.</p></div>
               <div><Command>/report</Command><p>Open or copy the public token report.</p></div>
               <div><Command>/panel</Command><p>Open the group owner control panel.</p></div>
+              <div><Command>/community</Command><p>Display privacy-safe member, verification, and moderation health metrics.</p></div>
               <div><Command>/fees</Command><p>Read the creator/protocol split and payout wallet.</p></div>
               <div><Command>/moderation</Command><p>Display moderation status and thresholds.</p></div>
               <div><Command>/moderation on</Command><p>Enable welcome, verification, and anti-flood.</p></div>

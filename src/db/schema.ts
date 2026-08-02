@@ -129,6 +129,24 @@ export const moderationActions = pgTable("moderation_actions", {
     .$defaultFn(() => new Date()),
 });
 
+export const communityHealthSnapshots = pgTable(
+  "community_health_snapshots",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id").notNull(),
+    memberCount: integer("member_count").notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("community_health_snapshots_group_captured_idx").on(
+      table.groupId,
+      table.capturedAt,
+    ),
+  ],
+);
+
 export const launchSessions = pgTable("launch_sessions", {
   id: text("id").primaryKey(),
   groupId: text("group_id")

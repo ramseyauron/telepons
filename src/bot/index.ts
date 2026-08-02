@@ -77,6 +77,7 @@ import {
   renderHolderIntelligence,
   renderLiveStats,
 } from "@/intelligence/token-intelligence";
+import { renderCommunityHealth } from "@/intelligence/community-health";
 import {
   initializeTrending,
   isTrendingPeriod,
@@ -830,7 +831,25 @@ bot.command("report", async (ctx) => {
   );
 });
 
-bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|refresh)$/, async (ctx) => {
+bot.command("community", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  try {
+    await ctx.reply(await renderCommunityHealth(ctx.api, ctx.chat.id), {
+      parse_mode: "HTML",
+    });
+  } catch (error) {
+    console.error("Could not render community health", {
+      groupId: String(ctx.chat.id),
+      error,
+    });
+    await ctx.reply(
+      "Community health is currently unavailable. Confirm that Telepons is still a group administrator.",
+    );
+  }
+});
+
+bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|community|refresh)$/, async (ctx) => {
   if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
   if (!(await requireChannelSubscriptions(ctx))) return;
   if (!(await isCurrentGroupOwner(ctx))) {
@@ -838,6 +857,13 @@ bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|ref
     return;
   }
   const action = ctx.match[1] as OwnerPanelAction;
+  if (action === "community") {
+    await ctx.reply(await renderCommunityHealth(ctx.api, ctx.chat.id), {
+      parse_mode: "HTML",
+    });
+    await ctx.answerCallbackQuery({ text: "Community health generated" });
+    return;
+  }
   if (action !== "refresh") await applyOwnerPanelAction(String(ctx.chat.id), action);
   if (action === "dashboard") {
     const settings = await db.query.groupTokenIntelligence.findFirst({

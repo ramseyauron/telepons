@@ -17,6 +17,7 @@ export type OwnerPanelAction =
   | "milestones"
   | "graduation"
   | "moderation"
+  | "community"
   | "refresh";
 
 export async function ensureOwnerPanelSettings(groupId: string) {
@@ -69,6 +70,8 @@ export async function renderOwnerPanel(groupId: string) {
     .text(`${state(intelligence?.graduationAlertsEnabled)} Graduation`, "panel:graduation")
     .row()
     .text(`${state(moderationEnabled)} Moderation`, "panel:moderation")
+    .text("👥 Community health", "panel:community")
+    .row()
     .text("↻ Refresh", "panel:refresh");
 
   if (session) {
