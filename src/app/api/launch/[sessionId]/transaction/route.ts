@@ -1,7 +1,6 @@
 import { Api } from "grammy";
 import { and, eq } from "drizzle-orm";
 import {
-  createPublicClient,
   decodeFunctionData,
   getAddress,
   isAddressEqual,
@@ -15,9 +14,8 @@ import {
   launchAnnouncementKeyboard,
 } from "@/bot/launch-announcement";
 import { expireLaunchSessions } from "@/bot/session-expiration";
-import { robinhoodChain } from "@/blockchain/chain";
+import { robinhoodPublicClient as publicClient } from "@/blockchain/public-client";
 import { ponsV1FactoryAbi } from "@/blockchain/pons-v1-abi";
-import { rateLimitedHttp } from "@/blockchain/rate-limited-transport";
 import { loggedRpcCall } from "@/blockchain/rpc-logging";
 import { env } from "@/config/env";
 import { ponsV1 } from "@/config/pons";
@@ -29,17 +27,10 @@ import {
   telegramGroups,
 } from "@/db/schema";
 import { launchDraftSchema } from "@/launch/schema";
+import { ensureLiveDashboard } from "@/intelligence/token-intelligence";
 
 const requestSchema = z.object({
   transactionHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
-});
-
-const publicClient = createPublicClient({
-  chain: robinhoodChain,
-  transport: rateLimitedHttp(
-    env.ROBINHOOD_RPC_URL ?? ponsV1.publicRpcUrl,
-    5,
-  ),
 });
 
 export async function POST(
@@ -262,6 +253,12 @@ export async function POST(
         });
       } catch (error) {
         console.error("Could not announce successful launch to group", error);
+      }
+
+      try {
+        await ensureLiveDashboard(api, session.groupId);
+      } catch (error) {
+        console.error("Could not create post-launch live dashboard", error);
       }
 
     }

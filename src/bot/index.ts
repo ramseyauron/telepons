@@ -9,6 +9,7 @@ import {
   announceLaunchSession,
   isPublicHttpsUrl,
   launchAnnouncementCaption,
+  launchTradingKeyboard,
 } from "@/bot/launch-announcement";
 import {
   backfillConfiguredGroupInstallations,
@@ -25,6 +26,7 @@ import {
 import { requireChannelSubscriptions } from "@/bot/subscription";
 import { handleGroupSetupConversation } from "@/bot/setup-conversation";
 import {
+  flushBuybotAggregates,
   rebuildVolumeTotalsFromSwaps,
   runBuybotIndexer,
 } from "@/indexer/buybot";
@@ -37,6 +39,7 @@ import {
   telegramGroups,
   tokenAssets,
   buybotSettings,
+  groupTokenIntelligence,
   groupModerationSettings,
   groupSetupConversations,
 } from "@/db/schema";
@@ -61,6 +64,14 @@ import {
   completeConversationDraft,
   launchConversationPrompt,
 } from "@/launch/conversation";
+import {
+  activeTokenSession,
+  contractGuardMessage,
+  ensureLiveDashboard,
+  renderCreatorFeeConfiguration,
+  renderHolderIntelligence,
+  renderLiveStats,
+} from "@/intelligence/token-intelligence";
 import {
   initializeTrending,
   isTrendingPeriod,
@@ -455,6 +466,60 @@ bot.command("buybot", async (ctx) => {
     .onConflictDoNothing({ target: buybotSettings.groupId });
 
   const input = ctx.match.trim().toLowerCase();
+  if (input === "topic current") {
+    const topicId = ctx.message?.message_thread_id;
+    if (!topicId) {
+      await ctx.reply(
+        "Run /buybot topic current inside the forum topic that should receive buy notifications.",
+      );
+      return;
+    }
+    await db
+      .update(buybotSettings)
+      .set({ topicId })
+      .where(eq(buybotSettings.groupId, groupId));
+    await ctx.reply("BuyBot notifications will be sent to this topic.");
+    return;
+  }
+
+  if (input === "topic reset") {
+    await db
+      .update(buybotSettings)
+      .set({ topicId: null })
+      .where(eq(buybotSettings.groupId, groupId));
+    await ctx.reply("BuyBot topic routing was reset to the main group chat.");
+    return;
+  }
+
+  if (input === "mode realtime" || input === "mode aggregate") {
+    const notificationMode = input.endsWith("aggregate")
+      ? "AGGREGATE"
+      : "REALTIME";
+    await db
+      .update(buybotSettings)
+      .set({ notificationMode })
+      .where(eq(buybotSettings.groupId, groupId));
+    await ctx.reply(
+      notificationMode === "AGGREGATE"
+        ? "BuyBot will combine qualifying buys into activity summaries."
+        : "BuyBot will publish each qualifying buy in real time.",
+    );
+    return;
+  }
+
+  if (input.startsWith("window ")) {
+    const seconds = Number(input.slice("window ".length));
+    if (!Number.isInteger(seconds) || seconds < 30 || seconds > 300) {
+      await ctx.reply("The aggregation window must be between 30 and 300 seconds.");
+      return;
+    }
+    await db
+      .update(buybotSettings)
+      .set({ aggregateWindowSeconds: seconds })
+      .where(eq(buybotSettings.groupId, groupId));
+    await ctx.reply(`BuyBot aggregation window updated to ${seconds} seconds.`);
+    return;
+  }
   if (input === "image") {
     await db
       .update(buybotSettings)
@@ -517,6 +582,8 @@ bot.command("buybot", async (ctx) => {
       `Status: ${settings.enabled ? "ACTIVE" : "PAUSED"}`,
       `Minimum displayed buy: ${formatEther(BigInt(settings.minimumBuyWei))} ETH`,
       `Image: ${settings.customImageTelegramFileId ? "CUSTOM" : "TOKEN LOGO"}`,
+      `Mode: ${settings.notificationMode}`,
+      `Aggregation window: ${settings.aggregateWindowSeconds} seconds`,
       "",
       "Commands:",
       "/buybot on",
@@ -524,8 +591,209 @@ bot.command("buybot", async (ctx) => {
       "/buybot 0.05",
       "/buybot image",
       "/buybot image reset",
+      "/buybot topic current",
+      "/buybot topic reset",
+      "/buybot mode realtime",
+      "/buybot mode aggregate",
+      "/buybot window 60",
+      `Topic routing: ${settings.topicId ? `TOPIC ${settings.topicId}` : "MAIN CHAT"}`,
     ].join("\n"),
   );
+});
+
+bot.command("stats", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  try {
+    const stats = await renderLiveStats(String(ctx.chat.id));
+    await ctx.reply(stats.text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: launchTradingKeyboard(stats.tokenAddress),
+    });
+  } catch (error) {
+    console.error("Could not render token stats", error);
+    await ctx.reply("Live token stats are not available for this group yet.");
+  }
+});
+
+bot.command("graduation", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  try {
+    const stats = await renderLiveStats(String(ctx.chat.id));
+    await ctx.reply(stats.text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: launchTradingKeyboard(stats.tokenAddress),
+    });
+  } catch (error) {
+    console.error("Could not render graduation status", error);
+    await ctx.reply("Graduation data is not available for this group yet.");
+  }
+});
+
+bot.command("holders", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  try {
+    await ctx.reply(await renderHolderIntelligence(String(ctx.chat.id)), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (error) {
+    console.error("Could not render holder intelligence", error);
+    await ctx.reply("Holder intelligence is not available for this group yet.");
+  }
+});
+
+bot.command("dashboard", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  if (!(await isCurrentGroupOwner(ctx))) {
+    await ctx.reply("Only the group owner can configure the live dashboard.");
+    return;
+  }
+  const groupId = String(ctx.chat.id);
+  const input = ctx.match.trim().toLowerCase();
+  await db
+    .insert(groupTokenIntelligence)
+    .values({ groupId })
+    .onConflictDoNothing({ target: groupTokenIntelligence.groupId });
+
+  if (input === "off") {
+    await db
+      .update(groupTokenIntelligence)
+      .set({ dashboardEnabled: false, updatedAt: new Date() })
+      .where(eq(groupTokenIntelligence.groupId, groupId));
+    await ctx.reply("Automatic live-dashboard updates are paused.");
+    return;
+  }
+  if (input && input !== "on" && input !== "refresh") {
+    await ctx.reply("Use /dashboard, /dashboard on, /dashboard off, or /dashboard refresh.");
+    return;
+  }
+
+  try {
+    await db
+      .update(groupTokenIntelligence)
+      .set({ dashboardEnabled: true, updatedAt: new Date() })
+      .where(eq(groupTokenIntelligence.groupId, groupId));
+    await ensureLiveDashboard(ctx.api, groupId);
+    await ctx.reply("The pinned live dashboard is active.");
+  } catch (error) {
+    console.error("Could not configure live dashboard", error);
+    await ctx.reply(
+      "The dashboard could not be created. Confirm that a token is active and Telepons can pin messages.",
+    );
+  }
+});
+
+bot.command("alerts", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  if (!(await isCurrentGroupOwner(ctx))) {
+    await ctx.reply("Only the group owner can configure group alerts.");
+    return;
+  }
+  const groupId = String(ctx.chat.id);
+  await db
+    .insert(groupTokenIntelligence)
+    .values({ groupId })
+    .onConflictDoNothing({ target: groupTokenIntelligence.groupId });
+  const input = ctx.match.trim().toLowerCase();
+
+  if (input === "graduation on" || input === "graduation off") {
+    await db
+      .update(groupTokenIntelligence)
+      .set({
+        graduationAlertsEnabled: input.endsWith("on"),
+        updatedAt: new Date(),
+      })
+      .where(eq(groupTokenIntelligence.groupId, groupId));
+  } else if (input === "volume off") {
+    await db
+      .update(groupTokenIntelligence)
+      .set({
+        volumeAlertThresholdWei: null,
+        volumeAlertTriggeredAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(groupTokenIntelligence.groupId, groupId));
+  } else if (input.startsWith("volume ")) {
+    try {
+      const threshold = parseEther(input.slice("volume ".length));
+      if (threshold <= 0n) throw new Error("INVALID_VOLUME_ALERT");
+      await db
+        .update(groupTokenIntelligence)
+        .set({
+          volumeAlertThresholdWei: threshold.toString(),
+          volumeAlertTriggeredAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(groupTokenIntelligence.groupId, groupId));
+    } catch {
+      await ctx.reply("Use /alerts volume 10 with a positive ETH amount.");
+      return;
+    }
+  } else if (input) {
+    await ctx.reply(
+      "Use /alerts, /alerts graduation on, /alerts graduation off, /alerts volume 10, or /alerts volume off.",
+    );
+    return;
+  }
+
+  const settings = await db.query.groupTokenIntelligence.findFirst({
+    where: eq(groupTokenIntelligence.groupId, groupId),
+  });
+  if (!settings) return;
+  await ctx.reply(
+    [
+      "Telepons group alerts",
+      "",
+      `Graduation milestones: ${settings.graduationAlertsEnabled ? "ON" : "OFF"}`,
+      `Volume target: ${settings.volumeAlertThresholdWei ? `${formatEther(BigInt(settings.volumeAlertThresholdWei))} ETH${settings.volumeAlertTriggeredAt ? " (TRIGGERED)" : ""}` : "OFF"}`,
+      "",
+      "/alerts graduation on",
+      "/alerts graduation off",
+      "/alerts volume 10",
+      "/alerts volume off",
+    ].join("\n"),
+  );
+});
+
+bot.command("contract", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  const session = await activeTokenSession(String(ctx.chat.id));
+  if (!session) {
+    await ctx.reply("No active Telepons token is connected to this group.");
+    return;
+  }
+  await ctx.reply(
+    contractGuardMessage({
+      officialToken: session.tokenAddress,
+      suppliedAddress: session.tokenAddress,
+    }),
+    { parse_mode: "HTML", link_preview_options: { is_disabled: true } },
+  );
+});
+
+bot.command("fees", async (ctx) => {
+  if (!isGroupContext(ctx) || !ctx.chat) return;
+  if (!(await requireChannelSubscriptions(ctx))) return;
+  try {
+    await ctx.reply(
+      await renderCreatorFeeConfiguration(String(ctx.chat.id)),
+      {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      },
+    );
+  } catch (error) {
+    console.error("Could not read creator fee configuration", error);
+    await ctx.reply("Creator fee configuration is currently unavailable.");
+  }
 });
 
 bot.command("trending", async (ctx) => {
@@ -671,6 +939,29 @@ async function handleBuybotCustomImage(
 bot.on("message:text", async (ctx) => {
   if (!isGroupContext(ctx) || ctx.message.text.startsWith("/")) {
     return;
+  }
+
+  const contractIntent = /\b(?:ca|contract|token address)\b/i.test(
+    ctx.message.text,
+  );
+  const suppliedAddress = ctx.message.text.match(
+    /0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/,
+  )?.[0];
+  if (contractIntent && suppliedAddress) {
+    const session = await activeTokenSession(String(ctx.chat.id));
+    if (session) {
+      await ctx.reply(
+        contractGuardMessage({
+          officialToken: session.tokenAddress,
+          suppliedAddress,
+        }),
+        {
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+        },
+      );
+      return;
+    }
   }
 
   if (await handleGroupSetupConversation(ctx)) return;
@@ -1240,6 +1531,12 @@ async function main(): Promise<void> {
     });
   }, 4_000);
   buybotTimer.unref();
+  const buybotAggregateTimer = setInterval(() => {
+    void flushBuybotAggregates(bot.api).catch((error) => {
+      console.error("BuyBot aggregate flush failed", error);
+    });
+  }, 10_000);
+  buybotAggregateTimer.unref();
   await bot.start();
 }
 

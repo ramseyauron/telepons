@@ -19,6 +19,7 @@ const sections = [
   ["launch", "Token launch"],
   ["wallet", "Wallet execution"],
   ["buybot", "BuyBot"],
+  ["intelligence", "Token intelligence"],
   ["trending", "Trending"],
   ["commands", "Commands"],
   ["security", "Security"],
@@ -342,8 +343,32 @@ Website: https://example.com`}</code></pre>
             </p>
           </section>
 
-          <section className="docs-section" id="commands">
+          <section className="docs-section" id="intelligence">
             <p className="docs-section-index">09</p>
+            <h2>Live token intelligence</h2>
+            <p>
+              The pinned live dashboard combines the pool price, ETH-denominated
+              market cap, indexed volume, net flow, trades, adjusted holders,
+              holder concentration, and exact pons graduation status. It is
+              created automatically after a verified launch and can be managed
+              with <Command>/dashboard</Command>.
+            </p>
+            <ul>
+              <li>Graduation alerts fire at 25%, 50%, 75%, 90%, and 100%.</li>
+              <li>One-shot gross-volume alerts can be configured by the owner.</li>
+              <li>Transfer events build durable holder balances with checkpoints.</li>
+              <li>Known pool and system addresses are excluded from adjusted holders.</li>
+              <li>Contract-address messages are compared with the official group token.</li>
+              <li>Creator, early-buyer, and whale labels are factual heuristics.</li>
+            </ul>
+            <div className="docs-note">
+              Graduation represents a liquidity threshold. Telepons never
+              presents it as a token quality or safety rating.
+            </div>
+          </section>
+
+          <section className="docs-section" id="commands">
+            <p className="docs-section-index">10</p>
             <h2>Command reference</h2>
             <div className="docs-command-table">
               <div><Command>/start</Command><p>Display the initial bot instructions.</p></div>
@@ -356,8 +381,18 @@ Website: https://example.com`}</code></pre>
               <div><Command>/buybot 0.05</Command><p>Set the minimum displayed buy in ETH.</p></div>
               <div><Command>/buybot image</Command><p>Request a custom BuyBot image upload.</p></div>
               <div><Command>/buybot image reset</Command><p>Return to the original token logo.</p></div>
+              <div><Command>/buybot mode aggregate</Command><p>Combine qualifying buys into timed summaries.</p></div>
+              <div><Command>/buybot window 60</Command><p>Set aggregation to 30–300 seconds.</p></div>
+              <div><Command>/buybot topic current</Command><p>Route BuyBot messages to the current forum topic.</p></div>
               <div><Command>/trending</Command><p>Display the 24-hour volume leaderboard.</p></div>
               <div><Command>/trending 1h</Command><p>Open a specific 1H, 6H, 24H, or 7D leaderboard.</p></div>
+              <div><Command>/stats</Command><p>Read the current live token terminal.</p></div>
+              <div><Command>/graduation</Command><p>Read exact graduation progress and threshold.</p></div>
+              <div><Command>/holders</Command><p>Display adjusted holders and concentration.</p></div>
+              <div><Command>/contract</Command><p>Display the official token contract.</p></div>
+              <div><Command>/dashboard</Command><p>Create or refresh the pinned live dashboard.</p></div>
+              <div><Command>/alerts</Command><p>Configure graduation and one-shot volume alerts.</p></div>
+              <div><Command>/fees</Command><p>Read the creator/protocol split and payout wallet.</p></div>
               <div><Command>/moderation</Command><p>Display moderation status and thresholds.</p></div>
               <div><Command>/moderation on</Command><p>Enable welcome, verification, and anti-flood.</p></div>
               <div><Command>/moderation off</Command><p>Disable all three moderation features.</p></div>
@@ -365,7 +400,7 @@ Website: https://example.com`}</code></pre>
           </section>
 
           <section className="docs-section" id="security">
-            <p className="docs-section-index">10</p>
+            <p className="docs-section-index">11</p>
             <h2>Security model</h2>
             <ul>
               <li>Only the current group owner can configure or launch.</li>
@@ -380,7 +415,7 @@ Website: https://example.com`}</code></pre>
           </section>
 
           <section className="docs-section" id="troubleshooting">
-            <p className="docs-section-index">11</p>
+            <p className="docs-section-index">12</p>
             <h2>Troubleshooting</h2>
             <div className="docs-faq">
               <details>

@@ -173,6 +173,57 @@ export const indexerCheckpoints = pgTable("indexer_checkpoints", {
     .$defaultFn(() => new Date()),
 });
 
+export const holderIndexerCheckpoints = pgTable("holder_indexer_checkpoints", {
+  tokenAddress: text("token_address").primaryKey(),
+  nextBlock: integer("next_block").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const tokenTransfers = pgTable(
+  "token_transfers",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    transactionHash: text("transaction_hash").notNull(),
+    logIndex: integer("log_index").notNull(),
+    blockNumber: integer("block_number").notNull(),
+    fromAddress: text("from_address").notNull(),
+    toAddress: text("to_address").notNull(),
+    valueRaw: text("value_raw").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index("token_transfers_token_block_idx").on(table.tokenAddress, table.blockNumber)],
+);
+
+export const holderBalances = pgTable(
+  "holder_balances",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    balanceRaw: text("balance_raw").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [index("holder_balances_token_idx").on(table.tokenAddress)],
+);
+
+export const tokenHolderStats = pgTable("token_holder_stats", {
+  tokenAddress: text("token_address").primaryKey(),
+  adjustedHolderCount: integer("adjusted_holder_count").notNull().default(0),
+  top10Bps: integer("top_10_bps").notNull().default(0),
+  largestHolderAddress: text("largest_holder_address"),
+  largestHolderBps: integer("largest_holder_bps").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const swaps = pgTable(
   "swaps",
   {
@@ -216,6 +267,49 @@ export const tokenVolumeTotals = pgTable("token_volume_totals", {
     .$defaultFn(() => new Date()),
 });
 
+export const tokenSnapshots = pgTable("token_snapshots", {
+  tokenAddress: text("token_address").primaryKey(),
+  poolAddress: text("pool_address").notNull(),
+  sqrtPriceX96: text("sqrt_price_x96").notNull(),
+  priceWethX18: text("price_weth_x18").notNull(),
+  marketCapWethWei: text("market_cap_weth_wei").notNull(),
+  pairedPrincipalWei: text("paired_principal_wei").notNull(),
+  graduationThresholdWei: text("graduation_threshold_wei").notNull(),
+  graduationBps: integer("graduation_bps").notNull(),
+  graduated: boolean("graduated").notNull(),
+  totalSupplyRaw: text("total_supply_raw").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const groupTokenIntelligence = pgTable(
+  "group_token_intelligence",
+  {
+    groupId: text("group_id").primaryKey(),
+    dashboardEnabled: boolean("dashboard_enabled").notNull().default(true),
+    dashboardMessageId: text("dashboard_message_id"),
+    dashboardUpdatedAt: timestamp("dashboard_updated_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    graduationAlertsEnabled: boolean("graduation_alerts_enabled")
+      .notNull()
+      .default(true),
+    lastGraduationMilestone: integer("last_graduation_milestone")
+      .notNull()
+      .default(0),
+    volumeAlertThresholdWei: text("volume_alert_threshold_wei"),
+    volumeAlertTriggeredAt: timestamp("volume_alert_triggered_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+);
+
 export const trendingState = pgTable("trending_state", {
   id: text("id").primaryKey(),
   onchainActivatedAt: timestamp("onchain_activated_at", {
@@ -238,7 +332,34 @@ export const buybotSettings = pgTable("buybot_settings", {
   awaitingCustomImage: boolean("awaiting_custom_image")
     .notNull()
     .default(false),
+  topicId: integer("topic_id"),
+  notificationMode: text("notification_mode", {
+    enum: ["REALTIME", "AGGREGATE"],
+  })
+    .notNull()
+    .default("REALTIME"),
+  aggregateWindowSeconds: integer("aggregate_window_seconds")
+    .notNull()
+    .default(60),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const buybotAggregates = pgTable("buybot_aggregates", {
+  id: text("id").primaryKey(),
+  groupId: text("group_id").notNull(),
+  tokenAddress: text("token_address").notNull(),
+  symbol: text("symbol").notNull(),
+  totalVolumeWei: text("total_volume_wei").notNull(),
+  largestBuyWei: text("largest_buy_wei").notNull(),
+  buyCount: integer("buy_count").notNull(),
+  uniqueTradersJson: text("unique_traders_json").notNull().default("[]"),
+  lastTransactionHash: text("last_transaction_hash").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),
 });

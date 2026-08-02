@@ -1,22 +1,22 @@
 import type { Api } from "grammy";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
-  createPublicClient,
   formatEther,
   formatUnits,
   getAddress,
+  isAddressEqual,
 } from "viem";
 import { robinhoodChain } from "@/blockchain/chain";
-import { rateLimitedHttp } from "@/blockchain/rate-limited-transport";
+import { robinhoodPublicClient as client } from "@/blockchain/public-client";
 import { loggedRpcCall } from "@/blockchain/rpc-logging";
 import {
   erc20ReadAbi,
   uniswapV3SwapEvent,
 } from "@/blockchain/uniswap-v3-abi";
-import { env } from "@/config/env";
 import { ponsV1 } from "@/config/pons";
 import { db } from "@/db/client";
 import {
+  buybotAggregates,
   buybotSettings,
   indexerCheckpoints,
   launchSessions,
@@ -25,17 +25,17 @@ import {
   tokenVolumeTotals,
 } from "@/db/schema";
 import { launchDraftSchema } from "@/launch/schema";
-
-const client = createPublicClient({
-  chain: robinhoodChain,
-  transport: rateLimitedHttp(
-    env.ROBINHOOD_RPC_URL ?? ponsV1.publicRpcUrl,
-    5,
-  ),
-});
+import { launchTradingKeyboard } from "@/bot/launch-announcement";
+import { indexTokenHolders } from "@/indexer/holders";
+import {
+  activeTokenSession,
+  updateIntelligenceAfterSwap,
+  type ActiveTokenSession,
+} from "@/intelligence/token-intelligence";
 
 const blockChunkSize = 500n;
 let indexing = false;
+let flushingAggregates = false;
 
 type BuybotTarget = {
   groupId: string;
@@ -43,6 +43,8 @@ type BuybotTarget = {
   poolAddress: string;
   symbol: string;
   startBlock: number;
+  deployerAddress: string;
+  session: ActiveTokenSession;
   defaultImageTelegramFileId?: string;
 };
 
@@ -248,6 +250,8 @@ async function notifyBuy(input: {
   totalSupply: bigint;
   volumeWei: bigint;
   imageTelegramFileId?: string;
+  topicId?: number;
+  labels: string[];
 }) {
   const holdingBps =
     input.totalSupply > 0n
@@ -267,13 +271,15 @@ async function notifyBuy(input: {
       ).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${symbol}`,
       `Buyer: <a href="${buyerUrl}">${escapeTelegramHtml(shortAddress(input.traderAddress))}</a>`,
       `Holding: ${holdingPercent}%`,
+      input.labels.length > 0 ? `Labels: ${input.labels.join(" · ")}` : null,
       `Volume since launch: ${Number(formatEther(input.volumeWei)).toFixed(4)} ETH`,
       "",
       `<a href="${transactionUrl}">View transaction ↗</a>`,
-    ].join("\n");
+    ].filter((line): line is string => line !== null).join("\n");
   const options = {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
+      ...(input.topicId ? { message_thread_id: input.topicId } : {}),
     } as const;
 
   if (input.imageTelegramFileId) {
@@ -286,6 +292,124 @@ async function notifyBuy(input: {
   }
 
   await input.api.sendMessage(Number(input.groupId), content, options);
+}
+
+async function queueBuyAggregate(input: {
+  groupId: string;
+  tokenAddress: string;
+  symbol: string;
+  traderAddress: string;
+  transactionHash: string;
+  pairAmountWei: bigint;
+}) {
+  const id = `${input.groupId}:${input.tokenAddress.toLowerCase()}`;
+  await db.transaction(async (tx) => {
+    const current = await tx.query.buybotAggregates.findFirst({
+      where: eq(buybotAggregates.id, id),
+    });
+    const traders = new Set<string>(
+      current
+        ? (JSON.parse(current.uniqueTradersJson) as string[])
+        : [],
+    );
+    traders.add(input.traderAddress.toLowerCase());
+    const total = BigInt(current?.totalVolumeWei ?? "0") + input.pairAmountWei;
+    const largest = BigInt(current?.largestBuyWei ?? "0");
+    const values = {
+      id,
+      groupId: input.groupId,
+      tokenAddress: input.tokenAddress,
+      symbol: input.symbol,
+      totalVolumeWei: total.toString(),
+      largestBuyWei:
+        input.pairAmountWei > largest
+          ? input.pairAmountWei.toString()
+          : largest.toString(),
+      buyCount: (current?.buyCount ?? 0) + 1,
+      uniqueTradersJson: JSON.stringify([...traders]),
+      lastTransactionHash: input.transactionHash,
+      startedAt: current?.startedAt ?? new Date(),
+      updatedAt: new Date(),
+    };
+    await tx
+      .insert(buybotAggregates)
+      .values(values)
+      .onConflictDoUpdate({
+        target: buybotAggregates.id,
+        set: values,
+      });
+  });
+}
+
+export async function flushBuybotAggregates(api: Api): Promise<number> {
+  if (flushingAggregates) return 0;
+  flushingAggregates = true;
+  try {
+    const aggregates = await db.select().from(buybotAggregates);
+    let sent = 0;
+    for (const aggregate of aggregates) {
+      const settings = await groupBuybotSettings(aggregate.groupId);
+      const windowSeconds = settings?.aggregateWindowSeconds ?? 60;
+      if (
+        Date.now() - aggregate.startedAt.getTime() < windowSeconds * 1_000
+      ) {
+        continue;
+      }
+
+      try {
+        const traders = JSON.parse(aggregate.uniqueTradersJson) as string[];
+        const content = [
+          `🔥 <b>${escapeTelegramHtml(aggregate.symbol)} BUY ACTIVITY</b>`,
+          "",
+          `${aggregate.buyCount} buys in ${windowSeconds} seconds`,
+          `Total bought: ${Number(formatEther(BigInt(aggregate.totalVolumeWei))).toFixed(4)} ETH`,
+          `Unique buyers: ${traders.length}`,
+          `Largest buy: ${Number(formatEther(BigInt(aggregate.largestBuyWei))).toFixed(4)} ETH`,
+          "",
+          `<a href="${ponsV1.explorerUrl}/tx/${aggregate.lastTransactionHash}">View latest transaction ↗</a>`,
+        ].join("\n");
+        const options = {
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+          reply_markup: launchTradingKeyboard(aggregate.tokenAddress),
+          ...(settings?.topicId ? { message_thread_id: settings.topicId } : {}),
+        } as const;
+
+        const session = await activeTokenSession(aggregate.groupId);
+        const asset = session
+          ? await db.query.tokenAssets.findFirst({
+              where: eq(tokenAssets.launchSessionId, session.id),
+            })
+          : null;
+        const image =
+          settings?.customImageTelegramFileId ?? asset?.telegramFileId;
+        if (image) {
+          await api.sendPhoto(Number(aggregate.groupId), image, {
+            caption: content,
+            ...options,
+          });
+        } else {
+          await api.sendMessage(Number(aggregate.groupId), content, options);
+        }
+        await db.delete(buybotAggregates).where(
+          and(
+            eq(buybotAggregates.id, aggregate.id),
+            eq(buybotAggregates.updatedAt, aggregate.updatedAt),
+          ),
+        );
+        sent += 1;
+      } catch (error) {
+        console.error("BUYBOT_AGGREGATE_SEND_FAILED", {
+          groupId: aggregate.groupId,
+          tokenAddress: aggregate.tokenAddress,
+          error,
+        });
+      }
+    }
+    return sent;
+  } finally {
+    flushingAggregates = false;
+  }
 }
 
 async function sessionTarget(
@@ -322,6 +446,8 @@ async function sessionTarget(
     poolAddress: session.poolAddress,
     symbol: draft.symbol,
     startBlock: launchBlock,
+    deployerAddress: session.expectedDeployer,
+    session: session as ActiveTokenSession,
     defaultImageTelegramFileId: tokenAsset?.telegramFileId ?? undefined,
   };
 }
@@ -340,6 +466,8 @@ async function indexPool(
     settings: NonNullable<Awaited<ReturnType<typeof groupBuybotSettings>>>;
   }> = [];
   const blockTimestampCache = new Map<bigint, Date>();
+  let latestSqrtPriceX96: bigint | undefined;
+  let insertedAnySwap = false;
   for (const target of targets) {
     const settings = await groupBuybotSettings(target.groupId);
     if (settings?.enabled) configuredTargets.push({ target, settings });
@@ -437,6 +565,10 @@ async function indexPool(
         tokenAmountRaw: tokenAmountRaw.toString(),
         tradedAt,
       });
+      if (recordedVolume.inserted) {
+        insertedAnySwap = true;
+        latestSqrtPriceX96 = log.args.sqrtPriceX96;
+      }
 
       if (!recordedVolume.inserted || side !== "BUY") {
         continue;
@@ -473,6 +605,28 @@ async function indexPool(
       });
 
       for (const { target, settings } of notificationTargets) {
+        if (settings.notificationMode === "AGGREGATE") {
+          await queueBuyAggregate({
+            groupId: target.groupId,
+            tokenAddress,
+            symbol: target.symbol,
+            traderAddress,
+            transactionHash: log.transactionHash,
+            pairAmountWei,
+          });
+          continue;
+        }
+        const labels = [
+          isAddressEqual(traderAddress, getAddress(target.deployerAddress))
+            ? "👤 Creator"
+            : null,
+          Number(log.blockNumber) <= target.startBlock + 20
+            ? "🎯 Early buyer"
+            : null,
+          totalSupply > 0n && (holdingBalance * 10_000n) / totalSupply >= 100n
+            ? "🐋 Whale"
+            : null,
+        ].filter((label): label is string => label !== null);
         await notifyBuy({
           api,
           groupId: target.groupId,
@@ -489,6 +643,8 @@ async function indexPool(
           imageTelegramFileId:
             settings.customImageTelegramFileId ??
             target.defaultImageTelegramFileId,
+          topicId: settings.topicId ?? undefined,
+          labels,
         });
       }
     }
@@ -501,6 +657,14 @@ async function indexPool(
         updatedAt: new Date(),
       })
       .where(eq(indexerCheckpoints.poolAddress, poolAddress));
+  }
+
+  if (insertedAnySwap && latestSqrtPriceX96 !== undefined) {
+    await updateIntelligenceAfterSwap({
+      api,
+      sessions: configuredTargets.map(({ target }) => target.session),
+      sqrtPriceX96: latestSqrtPriceX96,
+    });
   }
 }
 
@@ -558,7 +722,24 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
     });
     for (const [poolAddress, groupTargets] of targetsByPool) {
       try {
-        await indexPool(api, [...groupTargets.values()], chainHead);
+        const poolTargets = [...groupTargets.values()];
+        const firstTarget = poolTargets[0];
+        if (firstTarget) {
+          try {
+            await indexTokenHolders({
+              tokenAddress: firstTarget.tokenAddress,
+              poolAddress: firstTarget.poolAddress,
+              startBlock: firstTarget.startBlock,
+              chainHead,
+            });
+          } catch (error) {
+            console.error("HOLDER_INDEX_FAILED", {
+              tokenAddress: firstTarget.tokenAddress,
+              error,
+            });
+          }
+        }
+        await indexPool(api, poolTargets, chainHead);
       } catch (error) {
         console.error("BUYBOT_POOL_INDEX_FAILED", {
           poolAddress,

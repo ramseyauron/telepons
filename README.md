@@ -47,6 +47,15 @@ secrets or per-deployment environment variables.
 Pons v2 is not the current deployment target: its documentation states that the
 v2 launch factory and the rest of its launch stack have not been deployed yet.
 
+## Post-launch intelligence
+
+Active Telepons groups receive a pinned live dashboard, exact graduation
+milestones, durable Transfer-based holder balances, contract-address checks,
+creator fee configuration, and BuyBot topic/aggregation controls. Pool swaps
+remain the single source for BuyBot, volume, price, and Trending; holder events
+use an independent per-token checkpoint. All server-side Robinhood reads within
+each process share the five-request-per-second transport.
+
 ## Production architecture
 
 The complete production stack runs natively on one Ubuntu VPS:
