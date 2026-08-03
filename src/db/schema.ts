@@ -47,6 +47,11 @@ export const groupModerationSettings = pgTable(
     groupId: text("group_id").primaryKey(),
     groupDescription: text("group_description"),
     welcomeMessage: text("welcome_message"),
+    welcomeImageTelegramFileId: text("welcome_image_telegram_file_id"),
+    welcomeImageStorageKey: text("welcome_image_storage_key"),
+    welcomeImagePublicUrl: text("welcome_image_public_url"),
+    welcomeImagePinataFileId: text("welcome_image_pinata_file_id"),
+    welcomeImageCid: text("welcome_image_cid"),
     lastWelcomeMessageId: text("last_welcome_message_id"),
     welcomeEnabled: boolean("welcome_enabled")
       .notNull()
@@ -65,6 +70,22 @@ export const groupModerationSettings = pgTable(
       .$defaultFn(() => new Date()),
   },
 );
+
+export const groupWelcomeDrafts = pgTable("group_welcome_drafts", {
+  groupId: text("group_id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
+  mode: text("mode", { enum: ["MESSAGE", "IMAGE"] }).notNull(),
+  message: text("message"),
+  imageTelegramFileId: text("image_telegram_file_id"),
+  imageStorageKey: text("image_storage_key"),
+  imagePublicUrl: text("image_public_url"),
+  imagePinataFileId: text("image_pinata_file_id"),
+  imageCid: text("image_cid"),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
 
 export const groupSetupConversations = pgTable(
   "group_setup_conversations",

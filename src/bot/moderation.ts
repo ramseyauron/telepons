@@ -80,14 +80,45 @@ export async function sendRollingWelcome(input: {
       }
     }
 
-    const message = await input.api.sendMessage(
-      input.groupId,
-      renderWelcomeMessage(input.template ?? settings?.welcomeMessage, {
-        id: input.userId,
-        firstName: input.firstName,
-      }),
-      { parse_mode: "HTML" },
+    const welcomeText = renderWelcomeMessage(
+      input.template ?? settings?.welcomeMessage,
+      { id: input.userId, firstName: input.firstName },
     );
+    let message;
+    if (settings?.welcomeImageTelegramFileId) {
+      try {
+        message = await input.api.sendPhoto(
+          input.groupId,
+          settings.welcomeImageTelegramFileId,
+          { caption: welcomeText, parse_mode: "HTML" },
+        );
+      } catch (error) {
+        console.error("Could not send welcome Telegram file; trying IPFS URL", {
+          groupId,
+          error,
+        });
+        try {
+          if (!settings.welcomeImagePublicUrl) throw error;
+          message = await input.api.sendPhoto(
+            input.groupId,
+            settings.welcomeImagePublicUrl,
+            { caption: welcomeText, parse_mode: "HTML" },
+          );
+        } catch (fallbackError) {
+          console.error("Could not send welcome image; using text fallback", {
+            groupId,
+            error: fallbackError,
+          });
+          message = await input.api.sendMessage(input.groupId, welcomeText, {
+            parse_mode: "HTML",
+          });
+        }
+      }
+    } else {
+      message = await input.api.sendMessage(input.groupId, welcomeText, {
+        parse_mode: "HTML",
+      });
+    }
 
     await tx
       .update(groupModerationSettings)

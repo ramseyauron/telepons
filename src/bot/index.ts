@@ -26,6 +26,12 @@ import {
 import { requireChannelSubscriptions } from "@/bot/subscription";
 import { handleGroupSetupConversation } from "@/bot/setup-conversation";
 import {
+  handleWelcomeCallback,
+  handleWelcomeCommand,
+  handleWelcomeImage,
+  handleWelcomeText,
+} from "@/bot/welcome-settings";
+import {
   applyOwnerPanelAction,
   renderOwnerPanel,
   type OwnerPanelAction,
@@ -849,7 +855,7 @@ bot.command("community", async (ctx) => {
   }
 });
 
-bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|community|refresh)$/, async (ctx) => {
+bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|community|welcome|refresh)$/, async (ctx) => {
   if (!isGroupContext(ctx) || !ctx.chat || !ctx.from) return;
   if (!(await requireChannelSubscriptions(ctx))) return;
   if (!(await isCurrentGroupOwner(ctx))) {
@@ -862,6 +868,11 @@ bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|com
       parse_mode: "HTML",
     });
     await ctx.answerCallbackQuery({ text: "Community health generated" });
+    return;
+  }
+  if (action === "welcome") {
+    await handleWelcomeCommand(ctx);
+    await ctx.answerCallbackQuery({ text: "Welcome settings opened" });
     return;
   }
   if (action !== "refresh") await applyOwnerPanelAction(String(ctx.chat.id), action);
@@ -881,6 +892,13 @@ bot.callbackQuery(/^panel:(buybot|dashboard|milestones|graduation|moderation|com
   await ctx.editMessageText(panel.text, { parse_mode: "HTML", reply_markup: panel.keyboard });
   await ctx.answerCallbackQuery({ text: action === "refresh" ? "Panel refreshed" : "Setting updated" });
 });
+
+bot.callbackQuery(
+  /^welcome:(save_message|replace_message|save_image|replace_image|cancel)$/,
+  async (ctx) => {
+    await handleWelcomeCallback(ctx, ctx.match[1]);
+  },
+);
 
 bot.command("contract", async (ctx) => {
   if (!isGroupContext(ctx) || !ctx.chat) return;
@@ -981,6 +999,8 @@ bot.command("moderation", async (ctx) => {
   );
 });
 
+bot.command("welcome", handleWelcomeCommand);
+
 async function handleBuybotCustomImage(
   ctx: Context,
   telegramFileId: string,
@@ -1060,6 +1080,8 @@ bot.on("message:text", async (ctx) => {
   if (!isGroupContext(ctx) || ctx.message.text.startsWith("/")) {
     return;
   }
+
+  if (await handleWelcomeText(ctx)) return;
 
   const contractIntent = /\b(?:ca|contract|token address)\b/i.test(
     ctx.message.text,
@@ -1331,6 +1353,7 @@ async function handleLaunchOrder(
 bot.on("message:photo", async (ctx) => {
   const largestPhoto = ctx.message.photo.at(-1);
   if (largestPhoto) {
+    if (await handleWelcomeImage(ctx, largestPhoto.file_id)) return;
     if (await handleBuybotCustomImage(ctx, largestPhoto.file_id)) return;
     await handleLaunchOrder(ctx, largestPhoto.file_id, ctx.message.caption);
   }
@@ -1342,6 +1365,7 @@ bot.on("message:document", async (ctx) => {
     return;
   }
 
+  if (await handleWelcomeImage(ctx, document.file_id)) return;
   if (await handleBuybotCustomImage(ctx, document.file_id)) return;
   await handleLaunchOrder(ctx, document.file_id, ctx.message.caption);
 });

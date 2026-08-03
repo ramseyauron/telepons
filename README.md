@@ -63,6 +63,11 @@ metadata, community links, trading actions, and the latest indexed statistics.
 `/community` combines Telegram's current member count with durable verification,
 moderation, and daily member-count snapshots. Growth is only shown when a real
 24-hour or 7-day baseline exists; no individual member details are exposed.
+The rolling welcome can be managed independently through `/welcome`: owners can
+preview and confirm a custom `{member}` caption, upload a PNG/JPEG/WebP image to
+Pinata, reset to text-only, and enable or disable welcomes without changing human
+verification or anti-flood settings. Telegram file IDs keep delivery fast, while
+IPFS metadata provides a durable asset reference.
 
 ## Production architecture
 

@@ -236,6 +236,20 @@ export default function DocsPage() {
               <Command>/moderation off</Command> to control welcome messages,
               verification, and anti-flood together.
             </p>
+            <h3>Custom welcome</h3>
+            <p>
+              The group owner can edit the welcome independently with
+              <Command>/welcome</Command>. Text and image changes are previewed
+              before they replace the active welcome. Images are validated,
+              stored on Pinata, and sent as one photo with the welcome caption.
+            </p>
+            <ul>
+              <li><Command>/welcome message</Command> starts the text editor.</li>
+              <li><Command>/welcome image</Command> starts an image upload.</li>
+              <li><Command>/welcome preview</Command> previews the active welcome.</li>
+              <li><Command>/welcome image reset</Command> returns to text-only.</li>
+              <li><Command>/welcome on</Command> and <Command>/welcome off</Command> control only the welcome.</li>
+            </ul>
           </section>
 
           <section className="docs-section" id="launch">
@@ -402,6 +416,9 @@ Website: https://example.com`}</code></pre>
               <div><Command>/moderation</Command><p>Display moderation status and thresholds.</p></div>
               <div><Command>/moderation on</Command><p>Enable welcome, verification, and anti-flood.</p></div>
               <div><Command>/moderation off</Command><p>Disable all three moderation features.</p></div>
+              <div><Command>/welcome</Command><p>Configure, preview, or enable the rolling welcome.</p></div>
+              <div><Command>/welcome message</Command><p>Edit the welcome caption with a confirmation preview.</p></div>
+              <div><Command>/welcome image</Command><p>Upload and confirm a custom welcome image.</p></div>
             </div>
           </section>
 
