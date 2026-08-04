@@ -1687,7 +1687,11 @@ async function main(): Promise<void> {
     });
   }, 30_000);
   expirationTimer.unref();
-  await runBuybotIndexer(bot.api);
+  // RPC/indexer recovery must never delay Telegram long polling. Start the
+  // first cycle in the background and let commands become available at once.
+  void runBuybotIndexer(bot.api).catch((error) => {
+    console.error("Initial BuyBot indexer cycle failed", error);
+  });
   const buybotTimer = setInterval(() => {
     void runBuybotIndexer(bot.api).catch((error) => {
       console.error("BuyBot indexer cycle failed", error);

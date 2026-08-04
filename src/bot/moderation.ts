@@ -164,10 +164,21 @@ async function isAdministrator(ctx: Context): Promise<boolean> {
   const key = `${ctx.chat.id}:${ctx.from.id}`;
   const cached = administratorCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const member = await ctx.api.getChatMember(ctx.chat.id, ctx.from.id);
-  const value = member.status === "creator" || member.status === "administrator";
-  administratorCache.set(key, { value, expiresAt: Date.now() + 60_000 });
-  return value;
+  try {
+    const member = await ctx.api.getChatMember(ctx.chat.id, ctx.from.id);
+    const value =
+      member.status === "creator" || member.status === "administrator";
+    administratorCache.set(key, { value, expiresAt: Date.now() + 60_000 });
+    return value;
+  } catch (error) {
+    console.error("Could not determine member administrator status", {
+      groupId: String(ctx.chat.id),
+      userId: String(ctx.from.id),
+      error,
+    });
+    // A temporary Telegram lookup failure must not swallow every bot command.
+    return false;
+  }
 }
 
 async function muteMember(ctx: Context, userId: number, seconds?: number) {
@@ -696,11 +707,20 @@ export async function moderationMiddleware(
     await next();
     return;
   }
-  if (await handleVerificationCallback(ctx)) return;
-  if (await deleteSuspiciousMemberServiceEvent(ctx)) return;
-  if (await welcomeNewMembers(ctx)) return;
-  if (await blockPendingMemberMessage(ctx)) return;
-  if (await enforceAntiFlood(ctx)) return;
+  try {
+    if (await handleVerificationCallback(ctx)) return;
+    if (await deleteSuspiciousMemberServiceEvent(ctx)) return;
+    if (await welcomeNewMembers(ctx)) return;
+    if (await blockPendingMemberMessage(ctx)) return;
+    if (await enforceAntiFlood(ctx)) return;
+  } catch (error) {
+    console.error("MODERATION_MIDDLEWARE_FAILED", {
+      groupId: String(ctx.chat.id),
+      userId: ctx.from ? String(ctx.from.id) : undefined,
+      updateId: ctx.update.update_id,
+      error,
+    });
+  }
   await next();
 }
 
