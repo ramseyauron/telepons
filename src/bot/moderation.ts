@@ -18,6 +18,8 @@ import {
 const verificationLifetimeMs = 5 * 60 * 1000;
 const floodWindows = new Map<string, number[]>();
 const administratorCache = new Map<string, { value: boolean; expiresAt: number }>();
+const evmAddressPattern = /0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/;
+const blockedNameFragments = ["contract", "address"] as const;
 
 function actionId(): string {
   return `mod_${randomBytes(18).toString("base64url")}`;
@@ -180,6 +182,82 @@ async function muteMember(ctx: Context, userId: number, seconds?: number) {
   );
 }
 
+function suspiciousMemberName(member: {
+  first_name: string;
+  last_name?: string;
+  username?: string;
+}): { matched: string; value: string } | null {
+  const value = [member.first_name, member.last_name, member.username]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+  const normalized = value.toLowerCase();
+  const blockedFragment = blockedNameFragments.find((fragment) =>
+    normalized.includes(fragment),
+  );
+  if (blockedFragment) return { matched: blockedFragment, value };
+  if (evmAddressPattern.test(value)) return { matched: "evm_address", value };
+  return null;
+}
+
+async function kickSuspiciousMember(
+  ctx: Context,
+  member: {
+    id: number;
+    first_name: string;
+    last_name?: string;
+    username?: string;
+  },
+  match: { matched: string; value: string },
+): Promise<boolean> {
+  if (!ctx.chat) return false;
+
+  // A creator or administrator may legitimately use a project-oriented name.
+  // Check their current role before applying an irreversible moderation action.
+  try {
+    const chatMember = await ctx.api.getChatMember(ctx.chat.id, member.id);
+    if (
+      chatMember.status === "creator" ||
+      chatMember.status === "administrator"
+    ) {
+      return false;
+    }
+  } catch (error) {
+    console.error("Could not verify suspicious member role", {
+      groupId: String(ctx.chat.id),
+      userId: String(member.id),
+      error,
+    });
+    return false;
+  }
+
+  try {
+    await ctx.api.banChatMember(ctx.chat.id, member.id);
+    // Telegram implements a kick as ban followed by unban. The account is
+    // removed now but may deliberately join again later with a safe name.
+    await ctx.api.unbanChatMember(ctx.chat.id, member.id, {
+      only_if_banned: true,
+    });
+    await logAction({
+      groupId: String(ctx.chat.id),
+      userId: String(member.id),
+      action: "SUSPICIOUS_NAME_KICKED",
+      details: {
+        reason: match.matched,
+        displayedIdentity: match.value,
+      },
+    });
+    return true;
+  } catch (error) {
+    console.error("Could not kick suspiciously named member", {
+      groupId: String(ctx.chat.id),
+      userId: String(member.id),
+      reason: match.matched,
+      error,
+    });
+    return false;
+  }
+}
+
 export async function restoreMemberAccess(
   api: Api,
   groupId: number,
@@ -254,6 +332,14 @@ async function welcomeNewMembers(ctx: Context): Promise<boolean> {
 
     if (member.is_bot) {
       await logAction({ groupId, userId, action: "BOT_ACCOUNT_DETECTED" });
+      continue;
+    }
+
+    const suspiciousName = suspiciousMemberName(member);
+    if (
+      suspiciousName &&
+      (await kickSuspiciousMember(ctx, member, suspiciousName))
+    ) {
       continue;
     }
 
