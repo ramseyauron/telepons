@@ -180,10 +180,14 @@ export async function POST(
         .where(eq(telegramGroups.id, session.groupId));
       await tx
         .insert(buybotSettings)
-        .values({ groupId: session.groupId, enabled: true })
+        .values({
+          groupId: session.groupId,
+          enabled: true,
+          enabledAt: new Date(),
+        })
         .onConflictDoUpdate({
           target: buybotSettings.groupId,
-          set: { enabled: true },
+          set: { enabled: true, enabledAt: new Date() },
         });
     });
 

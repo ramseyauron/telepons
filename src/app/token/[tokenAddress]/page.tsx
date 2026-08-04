@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { formatEther } from "viem";
 import { ponsV1 } from "@/config/pons";
 import { getTokenReport } from "@/intelligence/token-report";
+import { requestTokenHolderSyncIfStale } from "@/indexer/holder-sync";
 import { ReportTokenLogo } from "./token-logo";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,10 @@ export default async function TokenReportPage({ params }: { params: Promise<{ to
   const { tokenAddress } = await params;
   const report = await getTokenReport(tokenAddress);
   if (!report) notFound();
+  await requestTokenHolderSyncIfStale(
+    report.tokenAddress,
+    "token_report_viewed",
+  );
   const { draft, snapshot, volume, holders } = report;
   const progress = ((snapshot?.graduationBps ?? 0) / 100).toFixed(2);
 

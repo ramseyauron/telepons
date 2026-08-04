@@ -144,7 +144,7 @@ async function onchainTrending(period: TrendingPeriod): Promise<TrendingResult> 
   const trackedAddresses = new Set<string>();
 
   for (const session of sessions) {
-    if (!session.tokenAddress || enabledByGroup.get(session.groupId) === false) {
+    if (!session.tokenAddress || enabledByGroup.get(session.groupId) !== true) {
       continue;
     }
     try {

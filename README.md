@@ -37,8 +37,34 @@ Optional:
 - `TRENDING_ENABLED`: enables the `/trending` leaderboard.
 - `TRENDING_DATA_SOURCE`: `dummy` for isolated demo data or `onchain` for
   verified Swap records already indexed by BuyBot. Changing it requires a bot
-  restart and never adds another RPC fetch. The first on-chain activation time
-  is persisted so data collected during dummy testing is excluded.
+  restart and never adds another RPC fetch. Before the production cutover, run
+  `npm run trending:activate-onchain` once to persist a new live-data epoch;
+  swaps collected before that timestamp are excluded from the leaderboard.
+
+### Activating live on-chain data
+
+Set these values in the production service environment:
+
+```bash
+TRENDING_ENABLED=true
+TRENDING_DATA_SOURCE=onchain
+```
+
+After deploying the code and migrations—but before restarting the services—run:
+
+```bash
+cd /opt/telepons
+set -a
+. /etc/telepons/telepons.env
+set +a
+npm run trending:activate-onchain
+sudo systemctl restart telepons-bot.service telepons-web.service
+```
+
+The activation command does not delete swaps or volume totals. It only advances
+the leaderboard epoch, so test activity remains available for audit while being
+ineligible for live rankings. Only groups with an explicit active BuyBot are
+indexed; when no BuyBot is active, the indexer performs no chain RPC calls.
 
 The active Pons v1 factory, start block, WETH, router, locker, and other public
 protocol addresses live in `src/config/pons.ts`. They are public constants, not
@@ -55,6 +81,16 @@ creator fee configuration, and BuyBot topic/aggregation controls. Pool swaps
 remain the single source for BuyBot, volume, price, and Trending; holder events
 use an independent per-token checkpoint. All server-side Robinhood reads within
 each process share the five-request-per-second transport.
+
+BuyBot polling adapts to each pool's most recent swap activity. Swap checks run
+every 4 seconds while hot, then back off to 10, 30, and 60 seconds. Holder data
+uses triggered synchronization instead of continuous polling: an initial
+backfill at launch, one debounced sync after swaps, an on-demand refresh when
+`/holders` sees data older than five minutes, and a one-hour safety
+reconciliation for direct wallet transfers. Checkpoints preserve every block
+between reads. After two hours without a swap, Telepons performs final swap and
+holder catch-up reads, pauses that group's BuyBot, and notifies the group. The
+owner can run `/buybot on` to start a fresh two-hour monitoring window.
 
 The milestone engine publishes new holder and gross-volume achievements without
 additional chain reads. `/panel` gives the current group owner inline controls,

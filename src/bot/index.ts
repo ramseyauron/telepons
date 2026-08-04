@@ -39,6 +39,7 @@ import {
 import {
   flushBuybotAggregates,
   rebuildVolumeTotalsFromSwaps,
+  requestHolderSync,
   runBuybotIndexer,
 } from "@/indexer/buybot";
 import { env } from "@/config/env";
@@ -564,7 +565,10 @@ bot.command("buybot", async (ctx) => {
   if (input === "on" || input === "off") {
     await db
       .update(buybotSettings)
-      .set({ enabled: input === "on" })
+      .set({
+        enabled: input === "on",
+        ...(input === "on" ? { enabledAt: new Date() } : {}),
+      })
       .where(eq(buybotSettings.groupId, groupId));
   } else if (input) {
     try {
@@ -596,6 +600,7 @@ bot.command("buybot", async (ctx) => {
       `Image: ${settings.customImageTelegramFileId ? "CUSTOM" : "TOKEN LOGO"}`,
       `Mode: ${settings.notificationMode}`,
       `Aggregation window: ${settings.aggregateWindowSeconds} seconds`,
+      "Idle policy: auto-pause after 2 hours without swaps",
       "",
       "Commands:",
       "/buybot on",
@@ -649,10 +654,23 @@ bot.command("holders", async (ctx) => {
   if (!isGroupContext(ctx) || !ctx.chat) return;
   if (!(await requireChannelSubscriptions(ctx))) return;
   try {
-    await ctx.reply(await renderHolderIntelligence(String(ctx.chat.id)), {
+    const groupId = String(ctx.chat.id);
+    const refreshScheduled = await requestHolderSync(groupId);
+    const holderReport = await renderHolderIntelligence(groupId);
+    await ctx.reply(
+      [
+        holderReport,
+        refreshScheduled
+          ? "\n<i>A fresh holder sync was scheduled in the background.</i>"
+          : null,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n"),
+      {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
-    });
+      },
+    );
   } catch (error) {
     console.error("Could not render holder intelligence", error);
     await ctx.reply("Holder intelligence is not available for this group yet.");
@@ -687,6 +705,7 @@ bot.command("dashboard", async (ctx) => {
   }
 
   try {
+    await requestHolderSync(groupId);
     await db
       .update(groupTokenIntelligence)
       .set({ dashboardEnabled: true, updatedAt: new Date() })

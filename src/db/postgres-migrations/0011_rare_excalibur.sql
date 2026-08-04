@@ -1,0 +1,1 @@
+ALTER TABLE "buybot_settings" ADD COLUMN "enabled_at" timestamp with time zone DEFAULT now() NOT NULL;

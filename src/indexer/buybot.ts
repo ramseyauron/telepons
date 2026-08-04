@@ -1,5 +1,5 @@
 import type { Api } from "grammy";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   formatEther,
   formatUnits,
@@ -18,6 +18,7 @@ import { db } from "@/db/client";
 import {
   buybotAggregates,
   buybotSettings,
+  holderIndexerCheckpoints,
   indexerCheckpoints,
   launchSessions,
   swaps,
@@ -28,12 +29,23 @@ import { launchDraftSchema } from "@/launch/schema";
 import { launchTradingKeyboard } from "@/bot/launch-announcement";
 import { indexTokenHolders } from "@/indexer/holders";
 import {
+  completeTokenHolderSync,
+  isTokenHolderSyncDue,
+  requestTokenHolderSyncIfStale,
+  scheduleTokenHolderSync,
+} from "@/indexer/holder-sync";
+import {
   activeTokenSession,
   updateIntelligenceAfterSwap,
   type ActiveTokenSession,
 } from "@/intelligence/token-intelligence";
 
 const blockChunkSize = 500n;
+const idleDisableAfterMs = 2 * 60 * 60 * 1_000;
+const holderAfterSwapDebounceMs = 60_000;
+const holderSafetyIntervalMs = 60 * 60 * 1_000;
+const lastSwapPollAt = new Map<string, number>();
+const holderLastSyncedAt = new Map<string, number>();
 let indexing = false;
 let flushingAggregates = false;
 
@@ -45,8 +57,71 @@ type BuybotTarget = {
   startBlock: number;
   deployerAddress: string;
   session: ActiveTokenSession;
+  lastActivityAt: Date;
   defaultImageTelegramFileId?: string;
 };
+
+type PollProfile = {
+  swapIntervalMs: number;
+};
+
+function pollProfile(idleForMs: number): PollProfile {
+  if (idleForMs < 5 * 60 * 1_000) {
+    return { swapIntervalMs: 4_000 };
+  }
+  if (idleForMs < 15 * 60 * 1_000) {
+    return { swapIntervalMs: 10_000 };
+  }
+  if (idleForMs < 60 * 60 * 1_000) {
+    return { swapIntervalMs: 30_000 };
+  }
+  return { swapIntervalMs: 60_000 };
+}
+
+function tokenKey(address: string): string {
+  return getAddress(address).toLowerCase();
+}
+
+async function holderSyncIsDue(
+  target: BuybotTarget,
+  now: number,
+): Promise<boolean> {
+  const key = tokenKey(target.tokenAddress);
+  if (await isTokenHolderSyncDue(target.tokenAddress, new Date(now))) return true;
+
+  let lastSyncedAt = holderLastSyncedAt.get(key);
+  if (lastSyncedAt === undefined) {
+    const checkpoint = await db.query.holderIndexerCheckpoints.findFirst({
+      where: eq(holderIndexerCheckpoints.tokenAddress, target.tokenAddress),
+    });
+    lastSyncedAt = checkpoint?.updatedAt.getTime() ?? 0;
+    holderLastSyncedAt.set(key, lastSyncedAt);
+  }
+  return now - lastSyncedAt >= holderSafetyIntervalMs;
+}
+
+async function markHolderSynced(
+  tokenAddress: string,
+  syncedAt: number,
+  syncStartedAt: Date,
+): Promise<void> {
+  const key = tokenKey(tokenAddress);
+  holderLastSyncedAt.set(key, syncedAt);
+  await completeTokenHolderSync(tokenAddress, syncStartedAt);
+}
+
+export async function requestHolderSync(groupId: string): Promise<boolean> {
+  const session = await activeTokenSession(groupId);
+  if (!session) return false;
+  const settings = await db.query.buybotSettings.findFirst({
+    where: eq(buybotSettings.groupId, groupId),
+  });
+  if (settings?.enabled !== true) return false;
+  return requestTokenHolderSyncIfStale(
+    session.tokenAddress,
+    "telegram_holders_command",
+  );
+}
 
 type SwapRecord = typeof swaps.$inferInsert;
 
@@ -440,6 +515,18 @@ async function sessionTarget(
   const tokenAsset = await db.query.tokenAssets.findFirst({
     where: eq(tokenAssets.launchSessionId, session.id),
   });
+  const latestSwap = await db.query.swaps.findFirst({
+    where: eq(swaps.tokenAddress, session.tokenAddress),
+    orderBy: [desc(swaps.blockNumber)],
+  });
+  const settings = await db.query.buybotSettings.findFirst({
+    where: eq(buybotSettings.groupId, session.groupId),
+  });
+  const launchOrEnabledAt =
+    settings?.enabledAt ?? session.consumedAt ?? session.createdAt;
+  const lastActivityAt = latestSwap
+    ? (latestSwap.tradedAt ?? latestSwap.createdAt)
+    : launchOrEnabledAt;
   return {
     groupId: session.groupId,
     tokenAddress: session.tokenAddress,
@@ -448,17 +535,66 @@ async function sessionTarget(
     startBlock: launchBlock,
     deployerAddress: session.expectedDeployer,
     session: session as ActiveTokenSession,
+    lastActivityAt:
+      lastActivityAt > launchOrEnabledAt ? lastActivityAt : launchOrEnabledAt,
     defaultImageTelegramFileId: tokenAsset?.telegramFileId ?? undefined,
   };
+}
+
+async function disableIdleTarget(api: Api, target: BuybotTarget): Promise<void> {
+  await db
+    .update(buybotSettings)
+    .set({ enabled: false })
+    .where(eq(buybotSettings.groupId, target.groupId));
+
+  try {
+    await api.sendMessage(
+      Number(target.groupId),
+      [
+        `⏸ <b>${escapeTelegramHtml(target.symbol)} BUYBOT PAUSED</b>`,
+        "",
+        "No swap activity was detected for 2 hours, so Telepons stopped on-chain monitoring to save RPC usage.",
+        "",
+        "The owner can run /buybot on to resume monitoring with a new 2-hour activity window.",
+      ].join("\n"),
+      { parse_mode: "HTML" },
+    );
+  } catch (error) {
+    console.error("BUYBOT_IDLE_NOTIFICATION_FAILED", {
+      groupId: target.groupId,
+      tokenAddress: target.tokenAddress,
+      error,
+    });
+  }
+}
+
+async function currentLastActivityAt(target: BuybotTarget): Promise<Date> {
+  const [latestSwap, settings] = await Promise.all([
+    db.query.swaps.findFirst({
+      where: eq(swaps.tokenAddress, target.tokenAddress),
+      orderBy: [desc(swaps.blockNumber)],
+    }),
+    db.query.buybotSettings.findFirst({
+      where: eq(buybotSettings.groupId, target.groupId),
+    }),
+  ]);
+  const enabledAt =
+    settings?.enabledAt ??
+    target.session.consumedAt ??
+    target.session.createdAt;
+  const swapAt = latestSwap
+    ? (latestSwap.tradedAt ?? latestSwap.createdAt)
+    : enabledAt;
+  return swapAt > enabledAt ? swapAt : enabledAt;
 }
 
 async function indexPool(
   api: Api,
   targets: BuybotTarget[],
   chainHead: bigint,
-) {
+): Promise<boolean> {
   const firstTarget = targets[0];
-  if (!firstTarget) return;
+  if (!firstTarget) return false;
   const tokenAddress = getAddress(firstTarget.tokenAddress);
   const poolAddress = getAddress(firstTarget.poolAddress);
   const configuredTargets: Array<{
@@ -472,7 +608,7 @@ async function indexPool(
     const settings = await groupBuybotSettings(target.groupId);
     if (settings?.enabled) configuredTargets.push({ target, settings });
   }
-  if (configuredTargets.length === 0) return;
+  if (configuredTargets.length === 0) return false;
 
   let checkpoint = await db.query.indexerCheckpoints.findFirst({
     where: eq(indexerCheckpoints.poolAddress, poolAddress),
@@ -487,7 +623,7 @@ async function indexPool(
       where: eq(indexerCheckpoints.poolAddress, poolAddress),
     });
   }
-  if (!checkpoint) return;
+  if (!checkpoint) return false;
 
   let fromBlock = BigInt(checkpoint.nextBlock);
 
@@ -666,6 +802,7 @@ async function indexPool(
       sqrtPriceX96: latestSqrtPriceX96,
     });
   }
+  return insertedAnySwap;
 }
 
 export async function runBuybotIndexer(api: Api): Promise<void> {
@@ -683,7 +820,7 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
       settingsRows.map((settings) => [settings.groupId, settings.enabled]),
     );
     const groupHasEnabledBuybot = (groupId: string) =>
-      enabledByGroup.get(groupId) !== false;
+      enabledByGroup.get(groupId) === true;
     const enabledSessions = sessions.filter((session) =>
       groupHasEnabledBuybot(session.groupId),
     );
@@ -695,7 +832,8 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
     for (const session of enabledSessions) {
       try {
         const target = await sessionTarget(session);
-        if (target) targets.push(target);
+        if (!target) continue;
+        targets.push(target);
       } catch (error) {
         console.error(
           `BuyBot indexing failed for ${session.tokenAddress ?? session.id}`,
@@ -715,23 +853,60 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
     }
     if (targetsByPool.size === 0) return;
 
+    const now = Date.now();
+    const duePools = [...targetsByPool.entries()].filter(
+      ([poolAddress, groupTargets]) => {
+        const interval = Math.min(
+          ...[...groupTargets.values()].map((target) =>
+            pollProfile(now - target.lastActivityAt.getTime()).swapIntervalMs,
+          ),
+        );
+        return now - (lastSwapPollAt.get(poolAddress) ?? 0) >= interval;
+      },
+    );
+    const duePoolKeys = new Set(duePools.map(([poolAddress]) => poolAddress));
+    const holderDuePoolKeys = new Set<string>();
+    for (const [poolAddress, groupTargets] of targetsByPool) {
+      const firstTarget = groupTargets.values().next().value as
+        | BuybotTarget
+        | undefined;
+      if (firstTarget && (await holderSyncIsDue(firstTarget, now))) {
+        holderDuePoolKeys.add(poolAddress);
+      }
+    }
+    const poolsToProcess = [...targetsByPool.entries()].filter(
+      ([poolAddress]) =>
+        duePoolKeys.has(poolAddress) || holderDuePoolKeys.has(poolAddress),
+    );
+    // Avoid even the shared eth_blockNumber request when every active pool is
+    // currently inside its adaptive backoff window and no holder trigger is due.
+    if (poolsToProcess.length === 0) return;
+
     const chainHead = await loggedRpcCall({
       operation: "eth_blockNumber",
       call: () => client.getBlockNumber(),
       isExpected: (value) => value >= 0n,
     });
-    for (const [poolAddress, groupTargets] of targetsByPool) {
+    for (const [poolAddress, groupTargets] of poolsToProcess) {
       try {
         const poolTargets = [...groupTargets.values()];
         const firstTarget = poolTargets[0];
-        if (firstTarget) {
+        let holderSyncedThisCycle = false;
+        if (firstTarget && holderDuePoolKeys.has(poolAddress)) {
           try {
+            const holderSyncStartedAt = new Date();
             await indexTokenHolders({
               tokenAddress: firstTarget.tokenAddress,
               poolAddress: firstTarget.poolAddress,
               startBlock: firstTarget.startBlock,
               chainHead,
             });
+            await markHolderSynced(
+              firstTarget.tokenAddress,
+              Date.now(),
+              holderSyncStartedAt,
+            );
+            holderSyncedThisCycle = true;
           } catch (error) {
             console.error("HOLDER_INDEX_FAILED", {
               tokenAddress: firstTarget.tokenAddress,
@@ -739,7 +914,56 @@ export async function runBuybotIndexer(api: Api): Promise<void> {
             });
           }
         }
-        await indexPool(api, poolTargets, chainHead);
+        if (!duePoolKeys.has(poolAddress)) continue;
+
+        lastSwapPollAt.set(poolAddress, now);
+        const insertedSwap = await indexPool(api, poolTargets, chainHead);
+        if (insertedSwap && firstTarget) {
+          await scheduleTokenHolderSync({
+            tokenAddress: firstTarget.tokenAddress,
+            notBefore: new Date(Date.now() + holderAfterSwapDebounceMs),
+            reason: "swap_detected",
+          });
+        }
+
+        // Perform the final catch-up read before auto-pausing. A swap mined just
+        // before the two-hour boundary is therefore indexed and resets the
+        // activity window instead of being missed by an early database check.
+        const idleCandidates = poolTargets.filter(
+          (target) =>
+            now - target.lastActivityAt.getTime() >= idleDisableAfterMs,
+        );
+        if (
+          idleCandidates.length > 0 &&
+          firstTarget &&
+          !holderSyncedThisCycle
+        ) {
+          try {
+            const holderSyncStartedAt = new Date();
+            await indexTokenHolders({
+              tokenAddress: firstTarget.tokenAddress,
+              poolAddress: firstTarget.poolAddress,
+              startBlock: firstTarget.startBlock,
+              chainHead,
+            });
+            await markHolderSynced(
+              firstTarget.tokenAddress,
+              Date.now(),
+              holderSyncStartedAt,
+            );
+          } catch (error) {
+            console.error("HOLDER_FINAL_SYNC_FAILED", {
+              tokenAddress: firstTarget.tokenAddress,
+              error,
+            });
+          }
+        }
+        for (const target of idleCandidates) {
+          const lastActivityAt = await currentLastActivityAt(target);
+          if (Date.now() - lastActivityAt.getTime() >= idleDisableAfterMs) {
+            await disableIdleTarget(api, target);
+          }
+        }
       } catch (error) {
         console.error("BUYBOT_POOL_INDEX_FAILED", {
           poolAddress,

@@ -263,6 +263,16 @@ export const tokenHolderStats = pgTable("token_holder_stats", {
     .$defaultFn(() => new Date()),
 });
 
+export const holderSyncRequests = pgTable("holder_sync_requests", {
+  tokenAddress: text("token_address").primaryKey(),
+  notBefore: timestamp("not_before", { withTimezone: true, mode: "date" })
+    .notNull(),
+  reason: text("reason").notNull(),
+  requestedAt: timestamp("requested_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const swaps = pgTable(
   "swaps",
   {
@@ -367,6 +377,9 @@ export const trendingState = pgTable("trending_state", {
 export const buybotSettings = pgTable("buybot_settings", {
   groupId: text("group_id").primaryKey(),
   enabled: boolean("enabled").notNull().default(true),
+  enabledAt: timestamp("enabled_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
   minimumBuyWei: text("minimum_buy_wei")
     .notNull()
     .default("10000000000000000"),

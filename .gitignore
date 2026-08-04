@@ -15,3 +15,4 @@ public/uploads/
 *.tsbuildinfo
 .DS_Store
 public/social
+.video-render

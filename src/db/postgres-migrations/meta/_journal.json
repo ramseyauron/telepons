@@ -78,6 +78,20 @@
       "when": 1785771081689,
       "tag": "0010_spooky_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785838489724,
+      "tag": "0011_rare_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785839967403,
+      "tag": "0012_yummy_rhodey",
+      "breakpoints": true
     }
   ]
 }
