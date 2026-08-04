@@ -18,7 +18,7 @@ import {
 const verificationLifetimeMs = 5 * 60 * 1000;
 const floodWindows = new Map<string, number[]>();
 const administratorCache = new Map<string, { value: boolean; expiresAt: number }>();
-const evmAddressPattern = /0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/;
+const evmAddressPattern = /0x[a-f0-9]{40}(?![a-f0-9])/i;
 const blockedNameFragments = ["contract", "address"] as const;
 
 function actionId(): string {
@@ -190,12 +190,17 @@ function suspiciousMemberName(member: {
   const value = [member.first_name, member.last_name, member.username]
     .filter((part): part is string => Boolean(part))
     .join(" ");
-  const normalized = value.toLowerCase();
+  const normalized = value.normalize("NFKC").toLowerCase();
+  // Compact separators and invisible formatting characters so variants such
+  // as "Con-Tract", "a d d r e s s", and zero-width text cannot bypass it.
+  const compact = normalized.replace(/[\p{Separator}\p{Punctuation}\p{Format}]/gu, "");
   const blockedFragment = blockedNameFragments.find((fragment) =>
-    normalized.includes(fragment),
+    compact.includes(fragment),
   );
   if (blockedFragment) return { matched: blockedFragment, value };
-  if (evmAddressPattern.test(value)) return { matched: "evm_address", value };
+  if (evmAddressPattern.test(compact)) {
+    return { matched: "evm_address", value };
+  }
   return null;
 }
 
@@ -211,25 +216,20 @@ async function kickSuspiciousMember(
 ): Promise<boolean> {
   if (!ctx.chat) return false;
 
-  // A creator or administrator may legitimately use a project-oriented name.
-  // Check their current role before applying an irreversible moderation action.
+  // Fail closed: remove speaking rights before attempting the kick. If Telegram
+  // rejects the ban, the suspicious account remains muted and never reaches
+  // the human-verification flow.
   try {
-    const chatMember = await ctx.api.getChatMember(ctx.chat.id, member.id);
-    if (
-      chatMember.status === "creator" ||
-      chatMember.status === "administrator"
-    ) {
-      return false;
-    }
+    await muteMember(ctx, member.id);
   } catch (error) {
-    console.error("Could not verify suspicious member role", {
+    console.error("Could not preemptively mute suspicious member", {
       groupId: String(ctx.chat.id),
       userId: String(member.id),
       error,
     });
-    return false;
   }
 
+  let kicked = false;
   try {
     await ctx.api.banChatMember(ctx.chat.id, member.id);
     // Telegram implements a kick as ban followed by unban. The account is
@@ -237,16 +237,7 @@ async function kickSuspiciousMember(
     await ctx.api.unbanChatMember(ctx.chat.id, member.id, {
       only_if_banned: true,
     });
-    await logAction({
-      groupId: String(ctx.chat.id),
-      userId: String(member.id),
-      action: "SUSPICIOUS_NAME_KICKED",
-      details: {
-        reason: match.matched,
-        displayedIdentity: match.value,
-      },
-    });
-    return true;
+    kicked = true;
   } catch (error) {
     console.error("Could not kick suspiciously named member", {
       groupId: String(ctx.chat.id),
@@ -254,8 +245,37 @@ async function kickSuspiciousMember(
       reason: match.matched,
       error,
     });
-    return false;
   }
+  await logAction({
+    groupId: String(ctx.chat.id),
+    userId: String(member.id),
+    action: "SUSPICIOUS_NAME_BLOCKED",
+    details: {
+      reason: match.matched,
+      displayedIdentity: match.value,
+      kicked,
+    },
+  });
+  return true;
+}
+
+async function deleteSuspiciousMemberServiceEvent(
+  ctx: Context,
+): Promise<boolean> {
+  const departedMember = ctx.message?.left_chat_member;
+  if (!departedMember || !suspiciousMemberName(departedMember)) return false;
+
+  try {
+    await ctx.deleteMessage();
+  } catch (error) {
+    console.error("Could not delete suspicious member service event", {
+      groupId: ctx.chat ? String(ctx.chat.id) : undefined,
+      userId: String(departedMember.id),
+      messageId: ctx.message?.message_id,
+      error,
+    });
+  }
+  return true;
 }
 
 export async function restoreMemberAccess(
@@ -677,6 +697,7 @@ export async function moderationMiddleware(
     return;
   }
   if (await handleVerificationCallback(ctx)) return;
+  if (await deleteSuspiciousMemberServiceEvent(ctx)) return;
   if (await welcomeNewMembers(ctx)) return;
   if (await blockPendingMemberMessage(ctx)) return;
   if (await enforceAntiFlood(ctx)) return;

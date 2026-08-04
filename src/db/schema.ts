@@ -142,7 +142,7 @@ export const moderationActions = pgTable("moderation_actions", {
       "VERIFICATION_EXPIRED",
       "MESSAGE_BLOCKED",
       "FLOOD_MUTED",
-      "SUSPICIOUS_NAME_KICKED",
+      "SUSPICIOUS_NAME_BLOCKED",
     ],
   }).notNull(),
   detailsJson: text("details_json"),
